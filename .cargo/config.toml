@@ -1,0 +1,2 @@
+[env]
+DYLD_FALLBACK_LIBRARY_PATH = "/opt/homebrew/opt/python@3.11/Frameworks/Python.framework/Versions/3.11/lib:/usr/lib:/opt/homebrew/lib"
