@@ -1,0 +1,19 @@
+# Example single-axis sweep (use with main.py -> pipe from txt)
+# Comma-separated values => sweep that parameter.
+
+beta=1.0
+bond_energy=-2.0
+eta=1.0
+scheme=negative_drive
+equilibration_time=1000.0
+chunk_time=100.0
+num_chunks=10
+seed=42
+lattice_size=128
+radius=35
+geometry_seed=0
+initial_npy=initial_geometry.npy
+run_prefix=test1
+output_dir=results
+
+diffusion_lamda=1, 10, 100, 0.5, 2

@@ -6,19 +6,20 @@ ly = 64
 bond_energy = 0.0
 delta_f = 0.0
 delta_mu = 0.0
-eta = 1.0
+eta = 0.0
 lambda = 100.0
-scheme = "negative_drive"
+scheme = "homo"
 
 [initial_condition]
-density = 0.025
-bonding_fraction = 0.5
+density = 0.000244140625
+bonding_fraction = 0.0
 
 [simulation]
-equilibration_time = 1000.0
-chunk_time = 100.0
-num_chunks = 100
+equilibration_time = 0.0
+chunk_time = 1.0
+num_chunks = 500
+num_trajectories = 100
 seed = 42
 
 [output]
-outdir = "results/test0"
+outdir = "results/test2_lambda100"

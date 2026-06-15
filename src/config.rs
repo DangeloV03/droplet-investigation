@@ -40,6 +40,8 @@ pub struct SimulationConfig {
     pub chunk_time: f64,
     pub num_chunks: usize,
     pub seed: u64,
+    #[serde(default = "default_num_trajectories")]
+    pub num_trajectories: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,4 +56,9 @@ impl Config {
         toml::from_str(&contents)
             .unwrap_or_else(|e| panic!("Could not parse config file '{}': {}", path, e))
     }
+}
+
+
+fn default_num_trajectories() -> usize {
+    1
 }

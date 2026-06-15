@@ -3,6 +3,15 @@ name = "droplet-investigation"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "test1"
+path = "src/test1.rs"
+
+[[bin]]
+name = "test2"
+path = "src/test2.rs"
+
+
 [dependencies]
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }

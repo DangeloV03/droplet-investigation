@@ -1,1 +1,20 @@
-/target
+# Rust compilation build outputs
+/target/
+
+# Python compilation cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# macOS system files
+.DS_Store
+
+# Simulation output data folders
+results/
+msd_data/
+Moritz_Big_Droplet/
+data/
+
+# Generated NumPy files, log files, and time sweeps
+*.npy
+*.log
