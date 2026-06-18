@@ -23,28 +23,41 @@ DEFAULT_CONFIG = "slurm_config.yml"
 
 
 def normalize_slurm_time(value: Any) -> str:
-    """Return a Slurm --time value as D-HH:MM:SS or HH:MM:SS."""
+    """Return a Slurm --time value as D-HH:MM:SS (Slurm rejects hour=24)."""
     if value is None:
         raise ValueError("slurm_config.yml must set 'time'")
+
+    # PyYAML may parse unquoted 24:00:00 as sexagesimal int 86400 (seconds).
+    if isinstance(value, int):
+        total_seconds = value if value > 86400 else value * 60
+        days, rem = divmod(total_seconds, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes, seconds = divmod(rem, 60)
+        if days > 0:
+            return f"{days}-{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
     text = str(value).strip()
     if not text:
         raise ValueError("slurm_config.yml 'time' must not be empty")
 
-    # Already day-prefixed, e.g. 0-24:00:00 or 1-00:00:00
     if "-" in text:
         return text
 
     parts = text.split(":")
     if len(parts) == 3:
-        hours, minutes, seconds = parts
-        return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+        hours, minutes, seconds = (int(parts[0]), int(parts[1]), int(parts[2]))
+        if hours >= 24:
+            days = hours // 24
+            hours = hours % 24
+            return f"{days}-{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     if len(parts) == 2:
-        minutes, seconds = parts
-        return f"00:{int(minutes):02d}:{int(seconds):02d}"
+        minutes, seconds = int(parts[0]), int(parts[1])
+        return f"00:{minutes:02d}:{seconds:02d}"
 
     raise ValueError(
-        f"Invalid Slurm time {text!r}; use HH:MM:SS (e.g. '24:00:00') or D-HH:MM:SS"
+        f"Invalid Slurm time {text!r}; use HH:MM:SS, e.g. '12:00:00' or '1-00:00:00'"
     )
 
 
@@ -64,12 +77,12 @@ def load_slurm_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
     cfg.setdefault("partition", "cpu")
     cfg.setdefault("cpus_per_task", 1)
     cfg.setdefault("mem", "4G")
-    cfg.setdefault("time", "24:00:00")
+    cfg.setdefault("time", "1-00:00:00")
     cfg.setdefault("job_name", "droplet_sim")
     cfg.setdefault("report_dir", "/home/$USER/slurm_reports")
     cfg.setdefault("setup_cmds", [])
     cfg.setdefault("project_root", "")
-    cfg["time"] = normalize_slurm_time(cfg.get("time", "24:00:00"))
+    cfg["time"] = normalize_slurm_time(cfg.get("time", "1-00:00:00"))
     return cfg
 
 
@@ -152,8 +165,13 @@ def submit_job(script_text: str, *, dry_run: bool = False) -> str | None:
         check=False,
     )
     if proc.returncode != 0:
+        time_line = next(
+            (ln for ln in script_text.splitlines() if ln.startswith("#SBATCH --time=")),
+            "(time directive not found)",
+        )
         raise RuntimeError(
-            f"sbatch failed (exit {proc.returncode}):\n{proc.stderr.strip()}"
+            f"sbatch failed (exit {proc.returncode}):\n{proc.stderr.strip()}\n"
+            f"Script had: {time_line}"
         )
 
     line = proc.stdout.strip()
