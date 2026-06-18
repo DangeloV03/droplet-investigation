@@ -4,11 +4,13 @@
 job_name: droplet_sim
 cpus_per_task: 1
 mem: 8G
-time: "08:00:00"
+time: "12:00:00"
 partition: cpu
 # account: your_account   # uncomment if required (flex runs without it)
 
 report_dir: /home/vd7294/slurm_reports
+output: "/home/vd7294/slurm_reports/%j.out"
+error: "/home/vd7294/slurm_reports/%j.err"
 
 setup_cmds:
   - "module load anaconda3/2024.10"

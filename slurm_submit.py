@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -126,29 +127,27 @@ def build_batch_script(
 ) -> str:
     report_dir = expand_user_vars(str(cfg["report_dir"]))
     job_stem = job_json.stem
-    stdout = f"{report_dir}/{job_stem}.out"
-    stderr = f"{report_dir}/{job_stem}.err"
+    stdout = expand_user_vars(str(cfg.get("output", f"{report_dir}/%j.out")))
+    stderr = expand_user_vars(str(cfg.get("error", f"{report_dir}/%j.err")))
+
+    job_name = f"{cfg['job_name']}_{job_stem}"[:64]
 
     lines = ["#!/bin/bash", "set -euo pipefail", ""]
 
-    directives: dict[str, Any] = {
-        "job-name": f"{cfg['job_name']}_{job_stem}",
-        "partition": cfg["partition"],
-        "cpus-per-task": cfg["cpus_per_task"],
-        "time": cfg["time"],
-        "output": stdout,
-        "error": stderr,
-    }
+    # Match flex / working sbatch flag order: partition, cpus, mem, time, logs.
+    lines.append(f"#SBATCH --job-name={job_name}")
+    lines.append(f"#SBATCH --partition={cfg['partition']}")
+    lines.append(f"#SBATCH --cpus-per-task={cfg['cpus_per_task']}")
     if cfg.get("mem_per_cpu") and not cfg.get("mem"):
-        directives["mem-per-cpu"] = cfg["mem_per_cpu"]
+        lines.append(f"#SBATCH --mem-per-cpu={cfg['mem_per_cpu']}")
     else:
-        directives["mem"] = cfg.get("mem", "8G")
+        lines.append(f"#SBATCH --mem={cfg.get('mem', '8G')}")
+    lines.append(f"#SBATCH --time={cfg['time']}")
+    lines.append(f"#SBATCH --output={stdout}")
+    lines.append(f"#SBATCH --error={stderr}")
     account = cfg.get("account")
     if account:
-        directives["account"] = account
-
-    for key, value in directives.items():
-        lines.append(f"#SBATCH --{key}={value}")
+        lines.append(f"#SBATCH --account={account}")
     lines.append("")
 
     for cmd in cfg.get("setup_cmds", []):
@@ -176,13 +175,28 @@ def submit_job(script_text: str, *, dry_run: bool = False) -> str | None:
         print("--- dry-run: sbatch not invoked ---")
         return None
 
-    proc = subprocess.run(
-        ["sbatch"],
-        input=script_text,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    script_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".slurm",
+            prefix="droplet_sim_",
+            delete=False,
+            encoding="utf-8",
+        ) as script_file:
+            script_file.write(script_text)
+            script_path = script_file.name
+
+        proc = subprocess.run(
+            ["sbatch", script_path],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    finally:
+        if script_path and os.path.exists(script_path):
+            os.unlink(script_path)
+
     if proc.returncode != 0:
         time_line = next(
             (ln for ln in script_text.splitlines() if ln.startswith("#SBATCH --time=")),
@@ -196,11 +210,9 @@ def submit_job(script_text: str, *, dry_run: bool = False) -> str | None:
             f"sbatch failed (exit {proc.returncode}):\n{proc.stderr.strip()}\n"
             f"Script had: {time_line}\n"
             f"Script had: {account_line}\n"
-            "On Della, check partition/account with:\n"
-            "  sacctmgr show assoc user=$USER format=account,partition -p\n"
-            "and test one job with:\n"
-            "  sbatch --test-only --partition=cpu --account=YOUR_ACCOUNT "
-            "--nodes=1 --ntasks=1 --cpus-per-task=1 --mem-per-cpu=4G --time=720 --wrap=true"
+            "Validate the full script with:\n"
+            "  python json_runner.py delta_f_sweep.json --slurm-dry-run | "
+            "sed -n '/^#!/,/^---/p' > /tmp/test.slurm && sbatch --test-only /tmp/test.slurm"
         )
 
     line = proc.stdout.strip()
