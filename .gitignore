@@ -11,6 +11,7 @@ __pycache__/
 
 # Simulation output data folders
 results/
+samples/
 msd_data/
 Moritz_Big_Droplet/
 data/

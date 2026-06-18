@@ -13,10 +13,23 @@
     "radius": 30,
     "geometry_seed": 0,
     "initial_npy": "initial_geometry.npy",
-    "output_dir": "results",
-    "run_prefix": "delta_f_sweep"
+    "output_dir": "results"
   },
   "sweep": {
-    "delta_f": [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
+    "delta_f": [
+      -1.0,
+      0.0,
+      1.0,
+      1.5,
+      2.0,
+      2.25,
+      2.5,
+      2.75,
+      2.85,
+      3.0,
+      3.25,
+      3.5,
+      4.0
+    ]
   }
 }
