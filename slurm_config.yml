@@ -3,24 +3,20 @@
 
 partition: cpu
 cpus_per_task: 1
-mem: 4G
-# Della QOS tiers: test ≤61min, short ≤24h, medium ≤72h, vlong ≤6d
-# Use at least 01:02:00 to avoid the 2-job "test" QOS limit.
-# Full delta_f runs — 12:00:00 = 12h (short QOS on Della; must be >= 01:02:00).
-time: "12:00:00"
+mem_per_cpu: 4G
+# 12 hours. Submitted to Slurm as --time=720 (minutes; avoids HH:MM:SS parsing issues).
+time_minutes: 720
 job_name: droplet_sim
 
-# Uncomment and set if your partition requires an account:
-# account: your_group_account
+# Often required on Della — check flex-investigation or run:
+#   sacctmgr show assoc user=$USER format=account,partition -p
+# account: wjacobs
 
-# Slurm stdout/stderr (use $USER — expanded at submit time)
 report_dir: /home/$USER/slurm_reports
 
-# Shell commands run inside each job before the simulation
 setup_cmds:
   - module load anaconda3/2024.10
   - conda activate lattice
   - export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
-# Project root on the cluster (override with PROJECT_ROOT env var)
 project_root: "/scratch/gpfs/WJACOBS/vd7294/droplet-investigation"

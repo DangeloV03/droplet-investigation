@@ -22,42 +22,48 @@ else:
 DEFAULT_CONFIG = "slurm_config.yml"
 
 
-def normalize_slurm_time(value: Any) -> str:
-    """Return a Slurm --time value as D-HH:MM:SS (Slurm rejects hour=24)."""
-    if value is None:
-        raise ValueError("slurm_config.yml must set 'time'")
+def slurm_time_to_minutes(value: Any) -> int:
+    """
+    Convert a config time value to Slurm minutes.
 
-    # PyYAML may parse unquoted 24:00:00 as sexagesimal int 86400 (seconds).
+    Accepts:
+      - integer minutes (e.g. 720)
+      - "HH:MM:SS" strings (e.g. "12:00:00")
+      - "D-HH:MM:SS" strings (e.g. "1-00:00:00")
+      - YAML sexagesimal ints from unquoted times (e.g. 12:00:00 -> 43200 seconds)
+    """
+    if value is None:
+        raise ValueError("slurm_config.yml must set 'time' or 'time_minutes'")
+
     if isinstance(value, int):
-        total_seconds = value if value > 86400 else value * 60
-        days, rem = divmod(total_seconds, 86400)
-        hours, rem = divmod(rem, 3600)
-        minutes, seconds = divmod(rem, 60)
-        if days > 0:
-            return f"{days}-{hours:02d}:{minutes:02d}:{seconds:02d}"
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        # Plain minutes if small; otherwise YAML sexagesimal seconds (12:00:00 -> 43200).
+        if value < 10000:
+            return value
+        return value // 60
 
     text = str(value).strip()
     if not text:
         raise ValueError("slurm_config.yml 'time' must not be empty")
 
+    if text.isdigit():
+        return int(text)
+
     if "-" in text:
-        return text
+        days_str, hms = text.split("-", 1)
+        days = int(days_str)
+        hours, minutes, seconds = (int(x) for x in hms.split(":"))
+        return days * 24 * 60 + hours * 60 + minutes + (1 if seconds > 0 else 0)
 
     parts = text.split(":")
     if len(parts) == 3:
-        hours, minutes, seconds = (int(parts[0]), int(parts[1]), int(parts[2]))
-        if hours >= 24:
-            days = hours // 24
-            hours = hours % 24
-            return f"{days}-{hours:02d}:{minutes:02d}:{seconds:02d}"
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        hours, minutes, seconds = (int(x) for x in parts)
+        return hours * 60 + minutes + (1 if seconds > 0 else 0)
     if len(parts) == 2:
         minutes, seconds = int(parts[0]), int(parts[1])
-        return f"00:{minutes:02d}:{seconds:02d}"
+        return minutes + (1 if seconds > 0 else 0)
 
     raise ValueError(
-        f"Invalid Slurm time {text!r}; use HH:MM:SS, e.g. '12:00:00' or '1-00:00:00'"
+        f"Invalid Slurm time {text!r}; use minutes (720), HH:MM:SS, or D-HH:MM:SS"
     )
 
 
@@ -76,13 +82,18 @@ def load_slurm_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
 
     cfg.setdefault("partition", "cpu")
     cfg.setdefault("cpus_per_task", 1)
-    cfg.setdefault("mem", "4G")
+    cfg.setdefault("mem_per_cpu", "4G")
     cfg.setdefault("time", "12:00:00")
     cfg.setdefault("job_name", "droplet_sim")
     cfg.setdefault("report_dir", "/home/$USER/slurm_reports")
     cfg.setdefault("setup_cmds", [])
     cfg.setdefault("project_root", "")
-    cfg["time"] = normalize_slurm_time(cfg.get("time", "12:00:00"))
+
+    if "time_minutes" in cfg:
+        cfg["time_minutes"] = slurm_time_to_minutes(cfg["time_minutes"])
+    else:
+        cfg["time_minutes"] = slurm_time_to_minutes(cfg.get("time", "12:00:00"))
+
     return cfg
 
 
@@ -113,14 +124,14 @@ def build_batch_script(
 
     lines = ["#!/bin/bash", "set -euo pipefail", ""]
 
-    directives = {
+    directives: dict[str, Any] = {
         "job-name": f"{cfg['job_name']}_{job_stem}",
         "partition": cfg["partition"],
         "nodes": 1,
         "ntasks": 1,
         "cpus-per-task": cfg["cpus_per_task"],
-        "mem": cfg["mem"],
-        "time": cfg["time"],
+        "mem-per-cpu": cfg["mem_per_cpu"],
+        "time": cfg["time_minutes"],
         "output": stdout,
         "error": stderr,
     }
@@ -169,14 +180,23 @@ def submit_job(script_text: str, *, dry_run: bool = False) -> str | None:
             (ln for ln in script_text.splitlines() if ln.startswith("#SBATCH --time=")),
             "(time directive not found)",
         )
+        account_line = next(
+            (ln for ln in script_text.splitlines() if ln.startswith("#SBATCH --account=")),
+            "(no account directive)",
+        )
         raise RuntimeError(
             f"sbatch failed (exit {proc.returncode}):\n{proc.stderr.strip()}\n"
-            f"Script had: {time_line}"
+            f"Script had: {time_line}\n"
+            f"Script had: {account_line}\n"
+            "On Della, check partition/account with:\n"
+            "  sacctmgr show assoc user=$USER format=account,partition -p\n"
+            "and test one job with:\n"
+            "  sbatch --test-only --partition=cpu --account=YOUR_ACCOUNT "
+            "--nodes=1 --ntasks=1 --cpus-per-task=1 --mem-per-cpu=4G --time=720 --wrap=true"
         )
 
     line = proc.stdout.strip()
     print(line)
-    # Typical output: "Submitted batch job 12345678"
     parts = line.split()
     return parts[-1] if parts else None
 
