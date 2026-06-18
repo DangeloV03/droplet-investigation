@@ -77,12 +77,12 @@ def load_slurm_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
     cfg.setdefault("partition", "cpu")
     cfg.setdefault("cpus_per_task", 1)
     cfg.setdefault("mem", "4G")
-    cfg.setdefault("time", "1-00:00:00")
+    cfg.setdefault("time", "12:00:00")
     cfg.setdefault("job_name", "droplet_sim")
     cfg.setdefault("report_dir", "/home/$USER/slurm_reports")
     cfg.setdefault("setup_cmds", [])
     cfg.setdefault("project_root", "")
-    cfg["time"] = normalize_slurm_time(cfg.get("time", "1-00:00:00"))
+    cfg["time"] = normalize_slurm_time(cfg.get("time", "12:00:00"))
     return cfg
 
 
