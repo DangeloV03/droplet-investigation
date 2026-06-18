@@ -1,0 +1,23 @@
+# Slurm settings for json_runner.py --slurm
+# Edit partition/account/report_dir for your Della account before submitting.
+
+partition: cpu
+cpus_per_task: 1
+mem: 4G
+time: "4:00:00"
+job_name: droplet_sim
+
+# Uncomment and set if your partition requires an account:
+# account: your_group_account
+
+# Slurm stdout/stderr (use $USER — expanded at submit time)
+report_dir: /home/$USER/slurm_reports
+
+# Shell commands run inside each job before the simulation
+setup_cmds:
+  - module load anaconda3/2024.10
+  - conda activate lattice
+  - export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+
+# Project root on the cluster (override with PROJECT_ROOT env var)
+project_root: ""

@@ -11,6 +11,7 @@ Two modes:
 from __future__ import annotations
 
 import re
+from dataclasses import asdict
 from typing import Any
 
 import numpy as np
@@ -106,10 +107,11 @@ def format_value_for_filename(value: Any) -> str:
     if isinstance(value, str):
         return re.sub(r"[^A-Za-z0-9._-]", "", value)
     if isinstance(value, int):
-        return str(value)
+        return f"m{abs(value)}" if value < 0 else str(value)
     if isinstance(value, float):
         if value == int(value):
-            return str(int(value))
+            iv = int(value)
+            return f"m{abs(iv)}" if iv < 0 else str(iv)
         return str(value).replace(".", "p").replace("-", "m")
     return str(value)
 
@@ -170,17 +172,27 @@ def sweep_values(parsed: dict[str, list[str]], sweep_key: str) -> list[Any]:
     return [coerce_value(sweep_key, v) for v in parsed[sweep_key]]
 
 
-def output_basename(prefix: str, sweep_key: str, sweep_value: Any) -> str:
-    return f"{prefix}_{sweep_key}{format_value_for_filename(sweep_value)}"
+def build_run_label(run: dict[str, Any]) -> str:
+    """
+    Canonical run folder name: size_scheme_deltaf_deltamu_epsilon.
+
+    Example: 256_negative_drive_df2p85_dm0p0_epsm2p95
+    """
+    size = run.get("lattice_size", 128)
+    scheme = run.get("scheme", "negative_drive")
+    df = format_value_for_filename(run.get("delta_f", 0.0))
+    dm = format_value_for_filename(run.get("delta_mu", 0.0))
+    eps = format_value_for_filename(run.get("bond_energy", -2.0))
+    return f"{size}_{scheme}_df{df}_dm{dm}_eps{eps}"
 
 
-def build_output_basename(run: dict[str, Any], sweep_keys: list[str]) -> str:
-    prefix = run.get("run_prefix", "run")
-    parts = [prefix]
-    for key in sorted(sweep_keys):
-        if key in run:
-            parts.append(f"{key}{format_value_for_filename(run[key])}")
-    return "_".join(parts)
+def output_basename(run: dict[str, Any]) -> str:
+    return build_run_label(run)
+
+
+def build_output_basename(run: dict[str, Any], sweep_keys: list[str] | None = None) -> str:
+    del sweep_keys  # sweep axes are encoded via their values in build_run_label
+    return build_run_label(run)
 
 
 # ---------------------------------------------------------------------------
@@ -235,9 +247,11 @@ def run_interactive() -> None:
         output_dir=output_dir,
     )
 
-    run_dir = make_timestamped_run_dir(params.output_dir, params.run_prefix)
+    run_dir = make_timestamped_run_dir(params.output_dir, build_run_label(asdict(params)))
     print(f"\nRunning in {run_dir} ...")
-    result = run_chunked_simulation(params, state, run_dir, label=params.run_prefix)
+    result = run_chunked_simulation(
+        params, state, run_dir, label=build_run_label(asdict(params))
+    )
 
     print("\n=== Done ===")
     print(f"Total KMC time: {result['final_time']:.4f}")
@@ -276,7 +290,7 @@ def run_from_params_file() -> None:
         run_params = params_from_parsed(parsed, overrides={sweep_key: value})
         run_params.run_prefix = prefix
         run_params.output_dir = output_dir
-        label = output_basename(prefix, sweep_key, value)
+        label = build_run_label(asdict(run_params))
         run_dir = make_timestamped_run_dir(output_dir, label)
 
         print(f"\n[{i}/{len(values)}] {sweep_key}={value} -> {run_dir}")
