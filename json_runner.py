@@ -188,16 +188,22 @@ def run_from_master(
     job_paths = [write_job_json(run, sweep_keys, samples_dir) for run in runs]
     print(f"Wrote {len(job_paths)} job JSON files under {samples_dir}/")
 
-    if slurm:
+    if slurm or slurm_dry_run:
         from slurm_submit import submit_runs
 
-        print("\nSubmitting Slurm jobs ...")
+        if slurm_dry_run:
+            print("\nDry run: printing batch scripts (no sbatch, no simulations) ...")
+        else:
+            print("\nSubmitting Slurm jobs ...")
         submit_runs(
             job_paths,
             config_path=slurm_config,
             dry_run=slurm_dry_run,
         )
-        print(f"\n=== Submitted {n} Slurm jobs (see slurm_config.yml report_dir) ===")
+        if slurm_dry_run:
+            print(f"\n=== Dry run done: {n} batch scripts printed, nothing submitted ===")
+        else:
+            print(f"\n=== Submitted {n} Slurm jobs (see slurm_config.yml report_dir) ===")
         return
 
     base_params = run_config_to_params(runs[0])
@@ -269,7 +275,7 @@ def main() -> None:
     parser.add_argument(
         "--slurm-dry-run",
         action="store_true",
-        help="With --slurm, print batch scripts without calling sbatch",
+        help="Print batch scripts without sbatch or running simulations",
     )
     parser.add_argument(
         "--slurm-config",
@@ -313,7 +319,7 @@ def main() -> None:
         args.config,
         jobs=args.jobs,
         keep_run_json=args.keep_run_json,
-        slurm=args.slurm,
+        slurm=args.slurm or args.slurm_dry_run,
         slurm_dry_run=args.slurm_dry_run,
         slurm_config=args.slurm_config,
         samples_dir=Path(args.samples_dir),
