@@ -1,22 +1,20 @@
 # Slurm settings for json_runner.py --slurm
-# Edit partition/account/report_dir for your Della account before submitting.
+# Matched to flex-investigation slurm_config.yml (known working on Della).
 
-partition: cpu
-cpus_per_task: 1
-mem_per_cpu: 4G
-# 12 hours. Submitted to Slurm as --time=720 (minutes; avoids HH:MM:SS parsing issues).
-time_minutes: 720
 job_name: droplet_sim
+cpus_per_task: 1
+mem: 8G
+time: "12:00:00"
+partition: cpu
+# account: your_account   # uncomment if required (flex runs without it)
 
-# Often required on Della — check flex-investigation or run:
-#   sacctmgr show assoc user=$USER format=account,partition -p
-# account: wjacobs
-
-report_dir: /home/$USER/slurm_reports
+report_dir: /home/vd7294/slurm_reports
 
 setup_cmds:
-  - module load anaconda3/2024.10
-  - conda activate lattice
-  - export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+  - "module load anaconda3/2024.10"
+  - "source \"$(conda info --base)/etc/profile.d/conda.sh\""
+  - "conda activate lattice"
+  - "export LD_LIBRARY_PATH=\"$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}\""
+  - "export PYTHONUNBUFFERED=1"
 
 project_root: "/scratch/gpfs/WJACOBS/vd7294/droplet-investigation"

@@ -82,17 +82,24 @@ def load_slurm_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
 
     cfg.setdefault("partition", "cpu")
     cfg.setdefault("cpus_per_task", 1)
-    cfg.setdefault("mem_per_cpu", "4G")
+    cfg.setdefault("mem", "8G")
     cfg.setdefault("time", "12:00:00")
     cfg.setdefault("job_name", "droplet_sim")
     cfg.setdefault("report_dir", "/home/$USER/slurm_reports")
     cfg.setdefault("setup_cmds", [])
     cfg.setdefault("project_root", "")
 
+    # Prefer flex-style HH:MM:SS string; fall back to time_minutes if set.
     if "time_minutes" in cfg:
-        cfg["time_minutes"] = slurm_time_to_minutes(cfg["time_minutes"])
+        minutes = slurm_time_to_minutes(cfg["time_minutes"])
+        hours, rem = divmod(minutes, 60)
+        cfg["time"] = f"{hours:02d}:{rem:02d}:00"
+    elif isinstance(cfg.get("time"), int):
+        minutes = slurm_time_to_minutes(cfg["time"])
+        hours, rem = divmod(minutes, 60)
+        cfg["time"] = f"{hours:02d}:{rem:02d}:00"
     else:
-        cfg["time_minutes"] = slurm_time_to_minutes(cfg.get("time", "12:00:00"))
+        cfg["time"] = str(cfg.get("time", "12:00:00")).strip()
 
     return cfg
 
@@ -127,14 +134,15 @@ def build_batch_script(
     directives: dict[str, Any] = {
         "job-name": f"{cfg['job_name']}_{job_stem}",
         "partition": cfg["partition"],
-        "nodes": 1,
-        "ntasks": 1,
         "cpus-per-task": cfg["cpus_per_task"],
-        "mem-per-cpu": cfg["mem_per_cpu"],
-        "time": cfg["time_minutes"],
+        "time": cfg["time"],
         "output": stdout,
         "error": stderr,
     }
+    if cfg.get("mem_per_cpu") and not cfg.get("mem"):
+        directives["mem-per-cpu"] = cfg["mem_per_cpu"]
+    else:
+        directives["mem"] = cfg.get("mem", "8G")
     account = cfg.get("account")
     if account:
         directives["account"] = account
