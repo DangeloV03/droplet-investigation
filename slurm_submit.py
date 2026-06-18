@@ -84,23 +84,19 @@ def load_slurm_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
     cfg.setdefault("partition", "cpu")
     cfg.setdefault("cpus_per_task", 1)
     cfg.setdefault("mem", "8G")
-    cfg.setdefault("time", "08:00:00")
+    cfg.setdefault("time_minutes", 720)
     cfg.setdefault("job_name", "droplet_sim")
     cfg.setdefault("report_dir", "/home/$USER/slurm_reports")
     cfg.setdefault("setup_cmds", [])
     cfg.setdefault("project_root", "")
 
-    # Prefer flex-style HH:MM:SS string; fall back to time_minutes if set.
+    # Batch scripts always use integer minutes in #SBATCH --time=N.
     if "time_minutes" in cfg:
-        minutes = slurm_time_to_minutes(cfg["time_minutes"])
-        hours, rem = divmod(minutes, 60)
-        cfg["time"] = f"{hours:02d}:{rem:02d}:00"
-    elif isinstance(cfg.get("time"), int):
-        minutes = slurm_time_to_minutes(cfg["time"])
-        hours, rem = divmod(minutes, 60)
-        cfg["time"] = f"{hours:02d}:{rem:02d}:00"
+        cfg["time_minutes"] = slurm_time_to_minutes(cfg["time_minutes"])
+    elif "time" in cfg:
+        cfg["time_minutes"] = slurm_time_to_minutes(cfg["time"])
     else:
-        cfg["time"] = str(cfg.get("time", "08:00:00")).strip()
+        cfg["time_minutes"] = 720
 
     return cfg
 
@@ -142,7 +138,7 @@ def build_batch_script(
         lines.append(f"#SBATCH --mem-per-cpu={cfg['mem_per_cpu']}")
     else:
         lines.append(f"#SBATCH --mem={cfg.get('mem', '8G')}")
-    lines.append(f"#SBATCH --time={cfg['time']}")
+    lines.append(f"#SBATCH --time={cfg['time_minutes']}")
     lines.append(f"#SBATCH --output={stdout}")
     lines.append(f"#SBATCH --error={stderr}")
     account = cfg.get("account")

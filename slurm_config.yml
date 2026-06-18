@@ -1,10 +1,14 @@
 # Slurm settings for json_runner.py --slurm
-# Matched to flex-investigation slurm_config.yml (known working on Della).
+# Aligned with flex-investigation (partition, mem, conda setup, %j logs).
+#
+# WALLTIME: set time_minutes only. Batch scripts emit #SBATCH --time=720
+# (integer minutes). Do NOT use HH:MM:SS in #SBATCH lines — Della accepts
+# --time=12:00:00 on the CLI but rejects it inside script files.
 
 job_name: droplet_sim
 cpus_per_task: 1
 mem: 8G
-time: "12:00:00"
+time_minutes: 720
 partition: cpu
 # account: your_account   # uncomment if required (flex runs without it)
 
