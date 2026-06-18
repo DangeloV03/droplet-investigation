@@ -22,6 +22,32 @@ else:
 DEFAULT_CONFIG = "slurm_config.yml"
 
 
+def normalize_slurm_time(value: Any) -> str:
+    """Return a Slurm --time value as D-HH:MM:SS or HH:MM:SS."""
+    if value is None:
+        raise ValueError("slurm_config.yml must set 'time'")
+
+    text = str(value).strip()
+    if not text:
+        raise ValueError("slurm_config.yml 'time' must not be empty")
+
+    # Already day-prefixed, e.g. 0-24:00:00 or 1-00:00:00
+    if "-" in text:
+        return text
+
+    parts = text.split(":")
+    if len(parts) == 3:
+        hours, minutes, seconds = parts
+        return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+    if len(parts) == 2:
+        minutes, seconds = parts
+        return f"00:{int(minutes):02d}:{int(seconds):02d}"
+
+    raise ValueError(
+        f"Invalid Slurm time {text!r}; use HH:MM:SS (e.g. '24:00:00') or D-HH:MM:SS"
+    )
+
+
 def load_slurm_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
     if yaml is None:
         raise ImportError(
@@ -43,6 +69,7 @@ def load_slurm_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
     cfg.setdefault("report_dir", "/home/$USER/slurm_reports")
     cfg.setdefault("setup_cmds", [])
     cfg.setdefault("project_root", "")
+    cfg["time"] = normalize_slurm_time(cfg.get("time", "24:00:00"))
     return cfg
 
 
@@ -76,6 +103,8 @@ def build_batch_script(
     directives = {
         "job-name": f"{cfg['job_name']}_{job_stem}",
         "partition": cfg["partition"],
+        "nodes": 1,
+        "ntasks": 1,
         "cpus-per-task": cfg["cpus_per_task"],
         "mem": cfg["mem"],
         "time": cfg["time"],

@@ -4,7 +4,10 @@
 partition: cpu
 cpus_per_task: 1
 mem: 4G
-time: "4:00:00"
+# Della QOS tiers: test ≤61min, short ≤24h, medium ≤72h, vlong ≤6d
+# Use at least 01:02:00 to avoid the 2-job "test" QOS limit.
+# Full delta_f runs may need several hours — 24:00:00 lands in "short".
+time: "24:00:00"
 job_name: droplet_sim
 
 # Uncomment and set if your partition requires an account:
@@ -20,4 +23,4 @@ setup_cmds:
   - export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
 # Project root on the cluster (override with PROJECT_ROOT env var)
-project_root: ""
+project_root: "/scratch/gpfs/WJACOBS/vd7294/droplet-investigation"
