@@ -50,4 +50,6 @@ if [[ -n "${ACCOUNT:-}" ]]; then
 fi
 
 echo "Submitting ${JOB_STEM} ..."
-sbatch "${SBATCH_ARGS[@]}" "${RUNNER}" "${JOB_JSON}"
+cd "${REPO_ROOT}"
+sbatch --export=ALL,DROPLET_REPO_ROOT="${REPO_ROOT}" \
+  "${SBATCH_ARGS[@]}" "${RUNNER}" "${JOB_JSON}"

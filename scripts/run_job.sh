@@ -6,7 +6,20 @@ set -euo pipefail
 
 JOB_JSON="${1:?Usage: run_job.sh samples/your_job.json}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Slurm copies this script to /var/spool/slurmd/.../slurm_script, so BASH_SOURCE
+# does not point at the repo. submit_one.sh passes DROPLET_REPO_ROOT via --export.
+if [[ -n "${DROPLET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="${DROPLET_REPO_ROOT}"
+elif [[ -f "$(dirname "${BASH_SOURCE[0]}")/slurm.env" ]]; then
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+elif [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/scripts/slurm.env" ]]; then
+  REPO_ROOT="${SLURM_SUBMIT_DIR}"
+else
+  echo "Cannot locate repo root (missing DROPLET_REPO_ROOT)" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="${REPO_ROOT}/scripts"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/slurm.env"
 
