@@ -5,7 +5,7 @@
     "diffusion_lamda": 1.0,
     "scheme": "negative_drive",
     "concentration": 0.05,
-    "equilibration_time": 100000.0,
+    "equilibration_time": 1000000.0,
     "chunk_time": 100.0,
     "num_chunks": 100,
     "seed": 42,
