@@ -42,6 +42,7 @@ PARAM_KEYS = frozenset({
     "initial_npy",
     "output_dir",
     "run_prefix",
+    "geometry_label",
 })
 
 SWEEPABLE_KEYS = frozenset({
@@ -55,10 +56,11 @@ SWEEPABLE_KEYS = frozenset({
     "chunk_time",
     "num_chunks",
     "seed",
+    "geometry_label",
 })
 
 INT_KEYS = frozenset({"seed", "lattice_size", "radius", "geometry_seed", "num_chunks"})
-STR_KEYS = frozenset({"scheme", "initial_npy", "output_dir", "run_prefix"})
+STR_KEYS = frozenset({"scheme", "initial_npy", "output_dir", "run_prefix", "geometry_label"})
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +178,7 @@ def build_run_label(run: dict[str, Any]) -> str:
     """
     Canonical run folder name: size_scheme_deltaf_deltamu_epsilon_eqtime.
 
-    Example: 256_negative_drive_df2p85_dm0_epsm2p95_eq1000000
+    Example: single_r25_256_negative_drive_df1p7337_dm0_epsm2p95_eq1000000
     """
     size = run.get("lattice_size", 128)
     scheme = run.get("scheme", "negative_drive")
@@ -184,7 +186,11 @@ def build_run_label(run: dict[str, Any]) -> str:
     dm = format_value_for_filename(run.get("delta_mu", 0.0))
     eps = format_value_for_filename(run.get("bond_energy", -2.0))
     eq = format_value_for_filename(run.get("equilibration_time", 1000.0))
-    return f"{size}_{scheme}_df{df}_dm{dm}_eps{eps}_eq{eq}"
+    base = f"{size}_{scheme}_df{df}_dm{dm}_eps{eps}_eq{eq}"
+    geom = run.get("geometry_label", "")
+    if geom:
+        return f"{geom}_{base}"
+    return base
 
 
 def output_basename(run: dict[str, Any]) -> str:

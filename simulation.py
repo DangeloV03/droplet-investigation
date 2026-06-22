@@ -70,6 +70,7 @@ class RunParams:
     initial_npy: str = "initial_geometry.npy"
     output_dir: str = "results"
     run_prefix: str = "test1"
+    geometry_label: str = ""
 
 
 @dataclass
@@ -160,6 +161,156 @@ def make_seed_geometry(
         flat_state[chosen] = chosen_species
 
     return state
+
+
+def droplet_disk_mask(lattice_size: int, cx: int, cy: int, radius: int) -> np.ndarray:
+    yy, xx = np.mgrid[0:lattice_size, 0:lattice_size]
+    return (yy - cy) ** 2 + (xx - cx) ** 2 <= radius ** 2
+
+
+def _scatter_leftover_particles(
+    state: np.ndarray,
+    occupied: np.ndarray,
+    n_particles: int,
+    bonding_fraction: float,
+    rng: np.random.Generator,
+) -> None:
+    outside_indices = np.flatnonzero((~occupied).reshape(-1))
+    if n_particles > len(outside_indices):
+        raise ValueError(
+            f"Need {n_particles} dilute-region sites but only {len(outside_indices)} available"
+        )
+    if n_particles <= 0:
+        return
+    chosen = rng.choice(outside_indices, size=n_particles, replace=False)
+    species = np.where(
+        rng.random(n_particles) < bonding_fraction, BONDING, INERT
+    ).astype(np.uint32)
+    state.reshape(-1)[chosen] = species
+
+
+def _fill_disk(
+    state: np.ndarray,
+    cx: int,
+    cy: int,
+    radius: int,
+    bonding_fraction: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    mask = droplet_disk_mask(state.shape[0], cx, cy, radius)
+    n_sites = int(np.count_nonzero(mask))
+    species = np.where(
+        rng.random(n_sites) < bonding_fraction, BONDING, INERT
+    ).astype(np.uint32)
+    state[mask] = species
+    return mask
+
+
+def make_multi_droplet_geometry(
+    lattice_size: int,
+    concentration: float,
+    centers: list[tuple[int, int]],
+    radius: int,
+    bonding_fraction: float = 0.85,
+    seed: int = 0,
+) -> np.ndarray:
+    """Fill equal-radius disks at ``centers``, then scatter dilute-phase particles."""
+    rng = np.random.default_rng(seed)
+    state = np.zeros((lattice_size, lattice_size), dtype=np.uint32)
+    occupied = np.zeros(state.shape, dtype=bool)
+
+    for cx, cy in centers:
+        disk = _fill_disk(state, cx, cy, radius, bonding_fraction, rng)
+        occupied |= disk
+
+    total_particles = round(concentration * lattice_size ** 2)
+    in_disks = int(np.count_nonzero(occupied))
+    if in_disks > total_particles:
+        raise ValueError(
+            f"{len(centers)} disks with r={radius} need {in_disks} sites but "
+            f"concentration={concentration} only provides {total_particles} particles"
+        )
+    _scatter_leftover_particles(
+        state, occupied, total_particles - in_disks, bonding_fraction, rng
+    )
+    return state
+
+
+def make_two_droplet_geometry(
+    lattice_size: int,
+    concentration: float,
+    radius: int,
+    bonding_fraction: float = 0.85,
+    seed: int = 0,
+) -> np.ndarray:
+    """Two equal droplets on the left and right, vertically centered."""
+    cy = lattice_size // 2
+    quarter = lattice_size // 4
+    centers = [(quarter, cy), (lattice_size - quarter - 1, cy)]
+    return make_multi_droplet_geometry(
+        lattice_size, concentration, centers, radius, bonding_fraction, seed
+    )
+
+
+def make_nine_droplet_geometry(
+    lattice_size: int,
+    concentration: float,
+    radius: int,
+    bonding_fraction: float = 0.85,
+    seed: int = 0,
+) -> np.ndarray:
+    """Nine equal droplets on a 3×3 grid."""
+    step = lattice_size // 4
+    centers = [(step, step), (2 * step, step), (3 * step, step),
+               (step, 2 * step), (2 * step, 2 * step), (3 * step, 2 * step),
+               (step, 3 * step), (2 * step, 3 * step), (3 * step, 3 * step)]
+    return make_multi_droplet_geometry(
+        lattice_size, concentration, centers, radius, bonding_fraction, seed
+    )
+
+
+def make_homogeneous_geometry(
+    lattice_size: int,
+    concentration: float,
+    bonding_fraction: float = 0.85,
+    seed: int = 0,
+) -> np.ndarray:
+    """Uniform random placement of B/I particles at the target concentration."""
+    rng = np.random.default_rng(seed)
+    state = np.zeros((lattice_size, lattice_size), dtype=np.uint32)
+    total_particles = round(concentration * lattice_size ** 2)
+    indices = rng.choice(state.size, size=total_particles, replace=False)
+    species = np.where(
+        rng.random(total_particles) < bonding_fraction, BONDING, INERT
+    ).astype(np.uint32)
+    state.reshape(-1)[indices] = species
+    return state
+
+
+YONGICK_GEOMETRY_BUILDERS: dict[str, Any] = {
+    "single_r25": lambda L, c, seed: make_seed_geometry(L, c, radius=25, seed=seed),
+    "two_r15": lambda L, c, seed: make_two_droplet_geometry(L, c, radius=15, seed=seed),
+    "nine_r8": lambda L, c, seed: make_nine_droplet_geometry(L, c, radius=8, seed=seed),
+    "homogeneous": lambda L, c, seed: make_homogeneous_geometry(L, c, seed=seed),
+}
+
+
+def build_yongick_geometry(
+    geometry_label: str,
+    lattice_size: int,
+    concentration: float,
+    seed: int = 0,
+) -> np.ndarray:
+    if geometry_label not in YONGICK_GEOMETRY_BUILDERS:
+        raise ValueError(
+            f"Unknown geometry_label {geometry_label!r}; "
+            f"expected one of {sorted(YONGICK_GEOMETRY_BUILDERS)}"
+        )
+    return YONGICK_GEOMETRY_BUILDERS[geometry_label](lattice_size, concentration, seed)
+
+
+def yongick_geometry_path(geometry_label: str, root: str = "geometries/yongick") -> str:
+    return os.path.join(root, f"{geometry_label}.npy")
 
 
 def load_or_create_geometry(params: RunParams, create_if_missing: bool = True) -> np.ndarray:

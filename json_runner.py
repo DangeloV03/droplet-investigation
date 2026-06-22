@@ -33,6 +33,7 @@ from simulation import (
     load_or_create_geometry,
     make_timestamped_run_dir,
     run_chunked_simulation,
+    yongick_geometry_path,
 )
 
 RUN_PARAM_KEYS = frozenset(RunParams.__dataclass_fields__.keys())
@@ -84,7 +85,7 @@ def validate_keys(fixed: dict[str, Any], sweep: dict[str, Any]) -> None:
 
 def expand_runs(fixed: dict[str, Any], sweep: dict[str, Any]) -> list[dict[str, Any]]:
     if not sweep:
-        return [{**fixed}]
+        return [finalize_run_config({**fixed})]
 
     keys = sorted(sweep.keys())
     value_lists = [sweep[k] for k in keys]
@@ -94,12 +95,21 @@ def expand_runs(fixed: dict[str, Any], sweep: dict[str, Any]) -> list[dict[str, 
         run = {**fixed}
         for k, v in zip(keys, combo):
             run[k] = v
-        runs.append(run)
+        runs.append(finalize_run_config(run))
     return runs
 
 
 def run_config_to_params(run: dict[str, Any]) -> RunParams:
     return RunParams(**{k: v for k, v in run.items() if k in RUN_PARAM_KEYS})
+
+
+def finalize_run_config(run: dict[str, Any]) -> dict[str, Any]:
+    """Attach geometry-specific initial_npy paths when geometry_label is set."""
+    run = dict(run)
+    label = run.get("geometry_label", "")
+    if label:
+        run["initial_npy"] = yongick_geometry_path(label)
+    return run
 
 
 def execute_single_run(
@@ -137,6 +147,7 @@ def _worker_run(
 
 def write_job_json(run: dict[str, Any], sweep_keys: list[str], out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
+    run = finalize_run_config(run)
     label = build_output_basename(run, sweep_keys)
     path = out_dir / f"{label}.json"
     payload = {
