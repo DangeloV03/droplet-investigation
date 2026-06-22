@@ -18,6 +18,7 @@ if [[ "${1:-}" == "--force" ]]; then
 fi
 
 cd "${REPO_ROOT}"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 if [[ ! -f "${SCRIPT_DIR}/slurm.env" ]]; then
   echo "Missing ${SCRIPT_DIR}/slurm.env — copy scripts/slurm.env.example and edit." >&2

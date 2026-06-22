@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 
-from simulation import YONGICK_GEOMETRY_BUILDERS, yongick_geometry_path
+from simulation import YONGICK_GEOMETRY_BUILDERS
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "yongick_geometry_sweep.json"
 DEFAULT_OUTDIR = REPO_ROOT / "geometries" / "yongick"
 
