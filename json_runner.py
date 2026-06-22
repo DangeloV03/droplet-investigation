@@ -165,6 +165,7 @@ def run_from_master(
     *,
     jobs: int = 1,
     keep_run_json: bool = False,
+    samples_only: bool = False,
     slurm: bool = False,
     slurm_dry_run: bool = False,
     slurm_config: str = "slurm_config.yml",
@@ -187,6 +188,11 @@ def run_from_master(
 
     job_paths = [write_job_json(run, sweep_keys, samples_dir) for run in runs]
     print(f"Wrote {len(job_paths)} job JSON files under {samples_dir}/")
+
+    if samples_only:
+        print(f"\n=== Done: {n} job JSON files ready under {samples_dir}/ ===")
+        print("Submit with: ./scripts/submit_sweep.sh", path)
+        return
 
     if slurm or slurm_dry_run:
         from slurm_submit import submit_runs
@@ -268,9 +274,14 @@ def main() -> None:
         help="Run up to N simulations in parallel locally (default: 1)",
     )
     parser.add_argument(
+        "--write-samples-only",
+        action="store_true",
+        help="Only expand the sweep into samples/*.json (no simulation, no Slurm)",
+    )
+    parser.add_argument(
         "--slurm",
         action="store_true",
-        help="Write per-run job JSON under samples/ and submit via sbatch",
+        help="(legacy) Submit via Python slurm_submit.py — prefer ./scripts/submit_sweep.sh",
     )
     parser.add_argument(
         "--slurm-dry-run",
@@ -319,6 +330,7 @@ def main() -> None:
         args.config,
         jobs=args.jobs,
         keep_run_json=args.keep_run_json,
+        samples_only=args.write_samples_only,
         slurm=args.slurm or args.slurm_dry_run,
         slurm_dry_run=args.slurm_dry_run,
         slurm_config=args.slurm_config,

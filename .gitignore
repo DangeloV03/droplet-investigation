@@ -12,6 +12,7 @@ __pycache__/
 # Simulation output data folders
 results/
 samples/
+scripts/slurm.env
 msd_data/
 Moritz_Big_Droplet/
 data/
