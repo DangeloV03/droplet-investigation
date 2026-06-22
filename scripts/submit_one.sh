@@ -3,10 +3,19 @@
 #
 # Usage:
 #   ./scripts/submit_one.sh samples/256_negative_drive_df2_dm0_epsm2p95.json
+#   ./scripts/submit_one.sh --force samples/256_negative_drive_df2_dm0_epsm2p95.json
+#
+# Exit codes: 0 = submitted, 2 = skipped (completed run exists), 1 = error
 
 set -euo pipefail
 
-JOB_JSON="${1:?Usage: submit_one.sh samples/your_job.json}"
+FORCE=0
+if [[ "${1:-}" == "--force" ]]; then
+  FORCE=1
+  shift
+fi
+
+JOB_JSON="${1:?Usage: submit_one.sh [--force] samples/your_job.json}"
 
 if [[ ! -f "${JOB_JSON}" ]]; then
   echo "Job JSON not found: ${JOB_JSON}" >&2
@@ -33,6 +42,13 @@ RUNNER="${REPO_ROOT}/scripts/run_job.sh"
 # Resolve job JSON relative to repo root if needed.
 if [[ "${JOB_JSON}" != /* ]]; then
   JOB_JSON="${REPO_ROOT}/${JOB_JSON}"
+fi
+
+if (( ! FORCE )); then
+  if existing=$(cd "${REPO_ROOT}" && python json_runner.py --find-completed "${JOB_JSON}"); then
+    echo "Skipping ${JOB_STEM} — completed run exists: ${existing}"
+    exit 2
+  fi
 fi
 
 SBATCH_ARGS=(

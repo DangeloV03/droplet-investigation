@@ -38,6 +38,27 @@ from simulation import (
 RUN_PARAM_KEYS = frozenset(RunParams.__dataclass_fields__.keys())
 METADATA_KEYS = frozenset({"beta", "eta"})
 SAMPLES_DIR = Path("samples")
+# Artifacts written at end of run_chunked_simulation; used to detect completed runs.
+COMPLETION_MARKER_FILES = ("cluster_series.csv", "params.json")
+
+
+def find_completed_run(output_dir: str | Path, label: str) -> Path | None:
+    """Return the newest results/*_{label}/ dir that finished successfully."""
+    root = Path(output_dir)
+    if not root.is_dir():
+        return None
+
+    suffix = f"_{label}"
+    matches: list[Path] = []
+    for entry in root.iterdir():
+        if not entry.is_dir() or not entry.name.endswith(suffix):
+            continue
+        if all((entry / name).is_file() for name in COMPLETION_MARKER_FILES):
+            matches.append(entry)
+
+    if not matches:
+        return None
+    return sorted(matches, key=lambda path: path.name)[-1]
 
 
 def load_master_config(path: str | Path) -> dict[str, Any]:
@@ -140,11 +161,33 @@ def load_job_json(path: str | Path) -> tuple[dict[str, Any], list[str]]:
     return payload, []
 
 
-def run_single_job(path: str | Path) -> dict:
+def find_completed_run_for_job(path: str | Path) -> Path | None:
     run, sweep_keys = load_job_json(path)
     params = run_config_to_params(run)
+    output_dir = run.get("output_dir", params.output_dir)
+    label = build_output_basename(run, sweep_keys)
+    return find_completed_run(output_dir, label)
+
+
+def run_single_job(path: str | Path, *, force: bool = False) -> dict:
+    run, sweep_keys = load_job_json(path)
+    params = run_config_to_params(run)
+    label = build_output_basename(run, sweep_keys)
     print(f"Job config: {path}")
-    print(f"Label: {build_output_basename(run, sweep_keys)}")
+    print(f"Label: {label}")
+
+    existing = find_completed_run(run.get("output_dir", params.output_dir), label)
+    if existing and not force:
+        print(f"Skipping — completed run already exists: {existing}")
+        return {
+            "run_dir": str(existing),
+            "skipped": True,
+            "basename": label,
+            "final_time": None,
+            "n_before": None,
+            "n_after": None,
+        }
+
     print(f"Loading geometry from {params.initial_npy} ...")
     initial_state = load_or_create_geometry(params)
     return execute_single_run(run, initial_state, sweep_keys)
@@ -153,11 +196,37 @@ def run_single_job(path: str | Path) -> dict:
 def _print_result(i: int, n: int, run: dict[str, Any], sweep_keys: list[str], result: dict) -> None:
     sweep_desc = ", ".join(f"{k}={run[k]}" for k in sweep_keys)
     print(f"[{i}/{n}] {sweep_desc or 'fixed params'}")
+    if result.get("skipped"):
+        print(f"  -> skipped (existing: {result['run_dir']})")
+        return
     print(
         f"  -> {result['run_dir']}\n"
         f"     t={result['final_time']:.4f}, "
         f"N={result['n_before']}->{result['n_after']}"
     )
+
+
+def _maybe_skip_run(
+    run: dict[str, Any],
+    sweep_keys: list[str],
+    *,
+    force: bool,
+) -> dict | None:
+    if force:
+        return None
+    params = run_config_to_params(run)
+    label = build_output_basename(run, sweep_keys)
+    existing = find_completed_run(run.get("output_dir", params.output_dir), label)
+    if existing is None:
+        return None
+    return {
+        "run_dir": str(existing),
+        "skipped": True,
+        "basename": label,
+        "final_time": None,
+        "n_before": None,
+        "n_after": None,
+    }
 
 
 def run_from_master(
@@ -170,6 +239,7 @@ def run_from_master(
     slurm_dry_run: bool = False,
     slurm_config: str = "slurm_config.yml",
     samples_dir: Path = SAMPLES_DIR,
+    force: bool = False,
 ) -> None:
     cfg = load_master_config(path)
     fixed = cfg["fixed"]
@@ -217,10 +287,17 @@ def run_from_master(
     initial_state = load_or_create_geometry(base_params)
 
     if jobs <= 1:
+        skipped = 0
         for i, run in enumerate(runs, start=1):
+            skip = _maybe_skip_run(run, sweep_keys, force=force)
+            if skip is not None:
+                skipped += 1
+                _print_result(i, n, run, sweep_keys, skip)
+                continue
             result = execute_single_run(run, initial_state, sweep_keys)
             _print_result(i, n, run, sweep_keys, result)
-        print(f"\n=== Done: {n} timestamped run folders under {base_params.output_dir}/ ===")
+        msg = f"\n=== Done: {n - skipped} new run(s), {skipped} skipped"
+        print(f"{msg} under {base_params.output_dir}/ ===")
         return
 
     jobs = min(jobs, n)
@@ -229,12 +306,19 @@ def run_from_master(
     geometry_path = tempfile.mkstemp(prefix="json_runner_geom_", suffix=".npy")[1]
     np.save(geometry_path, initial_state)
 
+    skipped = 0
     try:
         with ProcessPoolExecutor(max_workers=jobs) as pool:
-            futures = {
-                pool.submit(_worker_run, run, geometry_path, sweep_keys): (i, run)
-                for i, run in enumerate(runs, start=1)
-            }
+            futures = {}
+            for i, run in enumerate(runs, start=1):
+                skip = _maybe_skip_run(run, sweep_keys, force=force)
+                if skip is not None:
+                    skipped += 1
+                    _print_result(i, n, run, sweep_keys, skip)
+                    continue
+                futures[
+                    pool.submit(_worker_run, run, geometry_path, sweep_keys)
+                ] = (i, run)
             for future in as_completed(futures):
                 i, run = futures[future]
                 result = future.result()
@@ -248,7 +332,8 @@ def run_from_master(
         if samples_dir.exists() and not any(samples_dir.iterdir()):
             samples_dir.rmdir()
 
-    print(f"\n=== Done: {n} timestamped run folders under {base_params.output_dir}/ ===")
+    ran = n - skipped
+    print(f"\n=== Done: {ran} new run(s), {skipped} skipped under {base_params.output_dir}/ ===")
 
 
 def main() -> None:
@@ -303,13 +388,36 @@ def main() -> None:
         action="store_true",
         help="Keep per-run job JSON files after a local parallel batch",
     )
+    parser.add_argument(
+        "--find-completed",
+        metavar="JOB_JSON",
+        help="Print newest completed results dir for this job; exit 0 if found, 1 if not",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Run even if a completed result folder already exists",
+    )
     args = parser.parse_args()
+
+    if args.find_completed:
+        if not os.path.exists(args.find_completed):
+            print(f"Job JSON not found: {args.find_completed}", file=sys.stderr)
+            sys.exit(1)
+        existing = find_completed_run_for_job(args.find_completed)
+        if existing is None:
+            sys.exit(1)
+        print(existing)
+        sys.exit(0)
 
     if args.run_job:
         if not os.path.exists(args.run_job):
             print(f"Job JSON not found: {args.run_job}", file=sys.stderr)
             sys.exit(1)
-        result = run_single_job(args.run_job)
+        result = run_single_job(args.run_job, force=args.force)
+        if result.get("skipped"):
+            print(f"\n=== Skipped (already complete) ===\n{result['run_dir']}")
+            return
         print(
             f"\n=== Done ===\n"
             f"{result['run_dir']}\n"
@@ -335,6 +443,7 @@ def main() -> None:
         slurm_dry_run=args.slurm_dry_run,
         slurm_config=args.slurm_config,
         samples_dir=Path(args.samples_dir),
+        force=args.force,
     )
 
 
