@@ -27,6 +27,7 @@ if [[ ! -f "${SCRIPT_DIR}/slurm.env" ]]; then
 fi
 
 echo "=== Writing job JSON files from ${MASTER} ==="
+rm -f samples/*.json
 python json_runner.py "${MASTER}" --write-samples-only
 
 echo
