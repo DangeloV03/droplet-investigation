@@ -69,7 +69,7 @@ class RunParams:
     geometry_seed: int = 0
     initial_npy: str = "initial_geometry.npy"
     output_dir: str = "results"
-    run_prefix: str = "test1"
+    run_prefix: str = ""
 
 
 @dataclass
@@ -158,6 +158,98 @@ def make_seed_geometry(
         ).astype(np.uint32)
         flat_state = state.reshape(-1)
         flat_state[chosen] = chosen_species
+
+    return state
+
+
+def droplet_disk_mask(lattice_size: int, cx: int, cy: int, radius: int) -> np.ndarray:
+    yy, xx = np.mgrid[0:lattice_size, 0:lattice_size]
+    return (yy - cy) ** 2 + (xx - cx) ** 2 <= radius ** 2
+
+
+def count_droplet_sites(lattice_size: int, radius: int) -> int:
+    """Lattice sites in a central disk (same definition as make_seed_geometry)."""
+    center = lattice_size // 2
+    return int(np.count_nonzero(droplet_disk_mask(lattice_size, center, center, radius)))
+
+
+def _fill_disk_sites(
+    state: np.ndarray,
+    cx: int,
+    cy: int,
+    n_particles: int,
+    bonding_fraction: float,
+    rng: np.random.Generator,
+) -> None:
+    """Place exactly n_particles B/I sites in the smallest disk centered at (cx, cy)."""
+    lattice_size = state.shape[0]
+    radius = 1
+    while True:
+        mask = droplet_disk_mask(lattice_size, cx, cy, radius)
+        capacity = int(np.count_nonzero(mask))
+        if capacity >= n_particles:
+            break
+        radius += 1
+
+    indices = np.flatnonzero(mask.reshape(-1))
+    if len(indices) < n_particles:
+        raise ValueError(f"Disk at ({cx}, {cy}) cannot fit {n_particles} particles")
+    if len(indices) > n_particles:
+        indices = rng.choice(indices, size=n_particles, replace=False)
+
+    species = np.where(
+        rng.random(n_particles) < bonding_fraction, BONDING, INERT
+    ).astype(np.uint32)
+    flat_state = state.reshape(-1)
+    flat_state[indices] = species
+
+
+def make_split_droplet_geometry(
+    lattice_size: int,
+    concentration: float,
+    single_droplet_radius: int,
+    bonding_fraction: float = 0.85,
+    seed: int = 0,
+    corner_offset: int | None = None,
+) -> np.ndarray:
+    """
+    Two equal droplets in the upper-left and upper-right, each holding half
+    the particles of a reference central disk (radius ``single_droplet_radius``).
+
+    Remaining particles implied by ``concentration`` are scattered in the dilute
+    region, matching the single-droplet protocol.
+    """
+    rng = np.random.default_rng(seed)
+    state = np.zeros((lattice_size, lattice_size), dtype=np.uint32)
+
+    ref_sites = count_droplet_sites(lattice_size, single_droplet_radius)
+    particles_per_droplet = ref_sites // 2
+    total_particles = round(concentration * lattice_size ** 2)
+
+    if 2 * particles_per_droplet > total_particles:
+        raise ValueError(
+            f"Two half-droplets need {2 * particles_per_droplet} particles but "
+            f"concentration={concentration} only provides {total_particles}"
+        )
+
+    offset = corner_offset if corner_offset is not None else lattice_size // 4
+    centers = ((offset, offset), (lattice_size - offset - 1, offset))
+
+    occupied = np.zeros(state.shape, dtype=bool)
+    for cx, cy in centers:
+        _fill_disk_sites(state, cx, cy, particles_per_droplet, bonding_fraction, rng)
+        occupied = state != EMPTY
+
+    leftover = total_particles - int(np.count_nonzero(occupied))
+    if leftover > 0:
+        outside_indices = np.flatnonzero((~occupied).reshape(-1))
+        if leftover > len(outside_indices):
+            raise ValueError("Not enough dilute-region sites for leftover particles")
+        chosen = rng.choice(outside_indices, size=leftover, replace=False)
+        chosen_species = np.where(
+            rng.random(leftover) < bonding_fraction, BONDING, INERT
+        ).astype(np.uint32)
+        state.reshape(-1)[chosen] = chosen_species
 
     return state
 

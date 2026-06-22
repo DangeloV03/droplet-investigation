@@ -176,7 +176,7 @@ def build_run_label(run: dict[str, Any]) -> str:
     """
     Canonical run folder name: size_scheme_deltaf_deltamu_epsilon_eqtime.
 
-    Example: 256_negative_drive_df2p85_dm0_epsm2p95_eq1000000
+    Example: split_droplet_256_negative_drive_df2p85_dm0_epsm2p95_eq1000000
     """
     size = run.get("lattice_size", 128)
     scheme = run.get("scheme", "negative_drive")
@@ -184,7 +184,11 @@ def build_run_label(run: dict[str, Any]) -> str:
     dm = format_value_for_filename(run.get("delta_mu", 0.0))
     eps = format_value_for_filename(run.get("bond_energy", -2.0))
     eq = format_value_for_filename(run.get("equilibration_time", 1000.0))
-    return f"{size}_{scheme}_df{df}_dm{dm}_eps{eps}_eq{eq}"
+    base = f"{size}_{scheme}_df{df}_dm{dm}_eps{eps}_eq{eq}"
+    prefix = run.get("run_prefix", "")
+    if prefix:
+        return f"{prefix}_{base}"
+    return base
 
 
 def output_basename(run: dict[str, Any]) -> str:

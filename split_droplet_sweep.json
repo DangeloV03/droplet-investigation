@@ -1,0 +1,22 @@
+{
+  "fixed": {
+    "bond_energy": -2.95,
+    "delta_mu": 0.0,
+    "diffusion_lamda": 1.0,
+    "scheme": "negative_drive",
+    "concentration": 0.05,
+    "equilibration_time": 1000000.0,
+    "chunk_time": 100.0,
+    "num_chunks": 100,
+    "seed": 42,
+    "lattice_size": 256,
+    "radius": 30,
+    "geometry_seed": 0,
+    "initial_npy": "split_droplet_initial_geometry.npy",
+    "output_dir": "results",
+    "run_prefix": "split_droplet"
+  },
+  "sweep": {
+    "delta_f": [0.0, 1.0, 1.5, 2.0, 2.5]
+  }
+}
