@@ -287,10 +287,32 @@ def make_homogeneous_geometry(
     return state
 
 
+YONGICK_REFERENCE_LATTICE = 256
+
+
+def yongick_droplet_radius(base_radius: int, lattice_size: int) -> int:
+    """Scale droplet radii with lattice size (r=25 at 256² → r=12 at 128²)."""
+    return max(1, round(base_radius * lattice_size / YONGICK_REFERENCE_LATTICE))
+
+
+YONGICK_GEOMETRY_RADII: dict[str, int | None] = {
+    "single_r25": 25,
+    "two_r15": 15,
+    "nine_r8": 8,
+    "homogeneous": None,
+}
+
+
 YONGICK_GEOMETRY_BUILDERS: dict[str, Any] = {
-    "single_r25": lambda L, c, seed: make_seed_geometry(L, c, radius=25, seed=seed),
-    "two_r15": lambda L, c, seed: make_two_droplet_geometry(L, c, radius=15, seed=seed),
-    "nine_r8": lambda L, c, seed: make_nine_droplet_geometry(L, c, radius=8, seed=seed),
+    "single_r25": lambda L, c, seed: make_seed_geometry(
+        L, c, radius=yongick_droplet_radius(25, L), seed=seed
+    ),
+    "two_r15": lambda L, c, seed: make_two_droplet_geometry(
+        L, c, radius=yongick_droplet_radius(15, L), seed=seed
+    ),
+    "nine_r8": lambda L, c, seed: make_nine_droplet_geometry(
+        L, c, radius=yongick_droplet_radius(8, L), seed=seed
+    ),
     "homogeneous": lambda L, c, seed: make_homogeneous_geometry(L, c, seed=seed),
 }
 

@@ -14,7 +14,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import numpy as np
 
 from json_runner import expand_runs
-from simulation import YONGICK_GEOMETRY_BUILDERS
+from simulation import YONGICK_GEOMETRY_BUILDERS, YONGICK_GEOMETRY_RADII, yongick_droplet_radius
 
 DEFAULT_CONFIG = REPO_ROOT / "yongick_geometry_sweep.json"
 
@@ -47,7 +47,13 @@ def main() -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         np.save(path, state)
         occupied = int(np.count_nonzero(state))
-        print(f"  {lattice_size}² {label}: {occupied} occupied sites -> {path}")
+        base_r = YONGICK_GEOMETRY_RADII[label]
+        r_note = (
+            f"r={yongick_droplet_radius(base_r, lattice_size)}"
+            if base_r is not None
+            else "uniform"
+        )
+        print(f"  {lattice_size}² {label} ({r_note}): {occupied} occupied sites -> {path}")
 
 
 if __name__ == "__main__":
