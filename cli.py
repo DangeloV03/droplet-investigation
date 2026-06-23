@@ -56,6 +56,7 @@ SWEEPABLE_KEYS = frozenset({
     "chunk_time",
     "num_chunks",
     "seed",
+    "lattice_size",
     "geometry_label",
 })
 

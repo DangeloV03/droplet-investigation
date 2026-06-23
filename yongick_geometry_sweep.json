@@ -16,6 +16,7 @@
     "output_dir": "results"
   },
   "sweep": {
+    "lattice_size": [256, 128],
     "geometry_label": [
       "single_r25",
       "two_r15",

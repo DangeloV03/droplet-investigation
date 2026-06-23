@@ -309,8 +309,12 @@ def build_yongick_geometry(
     return YONGICK_GEOMETRY_BUILDERS[geometry_label](lattice_size, concentration, seed)
 
 
-def yongick_geometry_path(geometry_label: str, root: str = "geometries/yongick") -> str:
-    return os.path.join(root, f"{geometry_label}.npy")
+def yongick_geometry_path(
+    geometry_label: str,
+    lattice_size: int,
+    root: str = "geometries/yongick",
+) -> str:
+    return os.path.join(root, str(lattice_size), f"{geometry_label}.npy")
 
 
 def load_or_create_geometry(params: RunParams, create_if_missing: bool = True) -> np.ndarray:

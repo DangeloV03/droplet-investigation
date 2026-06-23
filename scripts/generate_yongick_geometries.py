@@ -13,10 +13,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 
+from json_runner import expand_runs
 from simulation import YONGICK_GEOMETRY_BUILDERS
 
 DEFAULT_CONFIG = REPO_ROOT / "yongick_geometry_sweep.json"
-DEFAULT_OUTDIR = REPO_ROOT / "geometries" / "yongick"
 
 
 def main() -> None:
@@ -24,12 +24,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         default=str(DEFAULT_CONFIG),
-        help="Master JSON listing geometry_label values to build",
-    )
-    parser.add_argument(
-        "--outdir",
-        default=str(DEFAULT_OUTDIR),
-        help="Directory for generated .npy files",
+        help="Master JSON listing sweep axes (lattice_size, geometry_label)",
     )
     args = parser.parse_args()
 
@@ -37,22 +32,22 @@ def main() -> None:
         cfg = json.load(f)
 
     fixed = cfg["fixed"]
-    labels = cfg.get("sweep", {}).get("geometry_label", sorted(YONGICK_GEOMETRY_BUILDERS))
-    lattice_size = int(fixed["lattice_size"])
+    sweep = cfg.get("sweep", {})
+    runs = expand_runs(fixed, sweep)
     concentration = float(fixed["concentration"])
     geometry_seed = int(fixed.get("geometry_seed", 0))
 
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    print(f"Lattice: {lattice_size}², concentration={concentration}, seed={geometry_seed}")
-    for label in labels:
+    print(f"Generating {len(runs)} geometry file(s), c={concentration}, seed={geometry_seed}")
+    for run in runs:
+        lattice_size = int(run["lattice_size"])
+        label = run["geometry_label"]
         builder = YONGICK_GEOMETRY_BUILDERS[label]
         state = builder(lattice_size, concentration, geometry_seed)
-        path = outdir / f"{label}.npy"
+        path = Path(run["initial_npy"])
+        path.parent.mkdir(parents=True, exist_ok=True)
         np.save(path, state)
         occupied = int(np.count_nonzero(state))
-        print(f"  {label}: {occupied} occupied sites -> {path}")
+        print(f"  {lattice_size}² {label}: {occupied} occupied sites -> {path}")
 
 
 if __name__ == "__main__":

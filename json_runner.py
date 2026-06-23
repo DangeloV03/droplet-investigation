@@ -108,7 +108,7 @@ def finalize_run_config(run: dict[str, Any]) -> dict[str, Any]:
     run = dict(run)
     label = run.get("geometry_label", "")
     if label:
-        run["initial_npy"] = yongick_geometry_path(label)
+        run["initial_npy"] = yongick_geometry_path(label, int(run["lattice_size"]))
     return run
 
 
