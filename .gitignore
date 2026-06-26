@@ -13,6 +13,7 @@ __pycache__/
 results/
 samples/
 samples_yongick/
+samples_yongick_*/
 scripts/slurm.env
 msd_data/
 Moritz_Big_Droplet/

@@ -1,0 +1,25 @@
+{
+  "fixed": {
+    "bond_energy": -2.95,
+    "delta_mu": 0.0,
+    "delta_f": 1.7337,
+    "diffusion_lamda": 100.0,
+    "scheme": "negative_drive",
+    "concentration": 0.05,
+    "equilibration_time": 500000.0,
+    "chunk_time": 100.0,
+    "num_chunks": 100,
+    "seed": 42,
+    "lattice_size": 64,
+    "radius": 25,
+    "geometry_seed": 0,
+    "output_dir": "results"
+  },
+  "sweep": {
+    "geometry_label": [
+      "single_r25",
+      "two_r15",
+      "homogeneous"
+    ]
+  }
+}
