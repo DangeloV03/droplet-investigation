@@ -87,11 +87,27 @@ submit_job() {
         || true
 }
 
-# ── wait until job leaves the queue ────────────────────────────────────────
+# ── wait until job is no longer running/pending ─────────────────────────────
+# Uses sacct as primary (catches completed jobs squeue drops) with squeue fallback.
+job_active() {
+    local jid="$1"
+    # sacct returns state for completed jobs too; "active" = RUNNING or PENDING
+    local state
+    state=$(sacct -j "${jid}" --noheader -o State%20 2>/dev/null | head -1 | tr -d ' ')
+    if [[ "${state}" == "RUNNING" || "${state}" == "PENDING" || "${state}" == "REQUEUED" ]]; then
+        return 0
+    fi
+    # Fall back to squeue for newly-submitted jobs not yet in sacct
+    if squeue -j "${jid}" -h 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    return 1
+}
+
 wait_for_job() {
     local jid="$1"
-    sleep 10   # give sbatch time to register
-    while squeue -j "${jid}" -h 2>/dev/null | grep -q .; do
+    sleep 30   # give sbatch time to register
+    while job_active "${jid}"; do
         sleep "${CHECK_INTERVAL}"
     done
 }

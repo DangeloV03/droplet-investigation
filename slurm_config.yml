@@ -10,9 +10,8 @@ cpus_per_task: 1
 mem: 8G
 time_minutes: 720
 partition: cpu
-# account: your_account   # uncomment if required (flex runs without it)
-# To use medium (72h) or vlong (144h) QOS, contact your HPC admin to confirm
-# your association has access, then add: qos: medium
+qos: medium
+# account: your_account   # uncomment if required
 
 report_dir: /home/vd7294/slurm_reports
 output: "/home/vd7294/slurm_reports/%j.out"
