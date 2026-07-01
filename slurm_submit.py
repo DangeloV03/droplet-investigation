@@ -144,6 +144,9 @@ def build_batch_script(
     account = cfg.get("account")
     if account:
         lines.append(f"#SBATCH --account={account}")
+    qos = cfg.get("qos")
+    if qos:
+        lines.append(f"#SBATCH --qos={qos}")
     lines.append("")
 
     for cmd in cfg.get("setup_cmds", []):

@@ -10,6 +10,7 @@ cpus_per_task: 1
 mem: 8G
 time_minutes: 7200
 partition: cpu
+qos: vlong
 # account: your_account   # uncomment if required (flex runs without it)
 
 report_dir: /home/vd7294/slurm_reports
