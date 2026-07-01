@@ -8,7 +8,7 @@
 job_name: droplet_sim
 cpus_per_task: 1
 mem: 8G
-time_minutes: 720
+time_minutes: 7200
 partition: cpu
 # account: your_account   # uncomment if required (flex runs without it)
 

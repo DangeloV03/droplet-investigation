@@ -27,7 +27,7 @@ import json
 import os
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace as dataclass_replace
 from datetime import datetime
 from typing import Any
 
@@ -396,6 +396,13 @@ LATTICE_CMAP = ListedColormap(["#ffffff", "#2166ac", "#d73027"])
 LATTICE_NORM = BoundaryNorm([-0.5, 0.5, 1.5, 2.5], LATTICE_CMAP.N)
 
 
+def save_snapshot(state: np.ndarray, snap_dir: str, total_time: float) -> None:
+    """Save a lattice .npy and .png tagged by KMC time into snap_dir."""
+    tag = f"t{int(total_time):011d}"
+    np.save(os.path.join(snap_dir, f"state_{tag}.npy"), state)
+    save_lattice_png(state, os.path.join(snap_dir, f"state_{tag}.png"))
+
+
 def save_lattice_png(state: np.ndarray, path: str) -> None:
     fig, ax = plt.subplots(figsize=(6, 6))
     im = ax.imshow(
@@ -740,3 +747,184 @@ def run_chunked_simulation(
 # Backward-compatible alias used by older callers.
 def run_once(params: RunParams, initial_state: np.ndarray, run_dir: str, **kwargs) -> dict:
     return run_chunked_simulation(params, initial_state, run_dir, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Poster simulation: 3-phase drive-on / drive-off protocol
+# ---------------------------------------------------------------------------
+
+def _run_phase_chunks(
+    initial_state: np.ndarray,
+    params: RunParams,
+    phase_duration: float,
+    snapshot_interval: float,
+    base_seed: int,
+    chunk_offset: int,
+    snap_dir: str,
+    density_rows: list[DensityRow],
+    cluster_rows: list[ClusterRow],
+    farfield_rows: list[FarFieldRow],
+    total_time: float,
+) -> tuple[np.ndarray, float]:
+    """Run one phase (drive_on or drive_off) in snapshot_interval-sized chunks."""
+    n_chunks = round(phase_duration / snapshot_interval)
+    state = initial_state
+    for i in range(n_chunks):
+        seed = base_seed + chunk_offset + i + 1
+        state, dt = _simulate_phase(state, params, snapshot_interval, seed)
+        total_time += dt
+        global_chunk = chunk_offset + i + 1
+
+        save_snapshot(state, snap_dir, total_time)
+
+        rb, ri, re = lattice_densities(state)
+        density_rows.append(DensityRow(chunk=global_chunk, time=total_time,
+                                       rho_bonding=rb, rho_inert=ri, rho_empty=re))
+        area, perimeter, r_eff = largest_cluster_stats(state)
+        cluster_rows.append(ClusterRow(chunk=global_chunk, time=total_time,
+                                       area=area, perimeter=perimeter, r_eff=r_eff))
+        rho_b_far, rho_i_far = far_field_densities(state)
+        farfield_rows.append(FarFieldRow(chunk=global_chunk, time=total_time,
+                                         rho_b_far=rho_b_far, rho_i_far=rho_i_far))
+
+        n_chunks_phase = n_chunks
+        if i % max(1, n_chunks_phase // 10) == 0:
+            print(f"    chunk {i + 1}/{n_chunks_phase}, t={total_time:.2f}")
+
+    return state, total_time
+
+
+def run_poster_simulation(
+    params: RunParams,
+    drive_on_delta_mu: float,
+    initial_state: np.ndarray,
+    run_dir: str,
+    *,
+    eq_time: float = 1_000_000.0,
+    drive_on_time: float = 500_000.0,
+    drive_off_time: float = 500_000.0,
+    snapshot_interval: float = 10_000.0,
+) -> dict[str, Any]:
+    """
+    3-phase poster protocol:
+      1. Equilibrate with delta_mu=0 for eq_time
+      2. Drive ON (delta_mu=drive_on_delta_mu) for drive_on_time
+      3. Drive OFF (delta_mu=0) for drive_off_time
+
+    Saves .npy + .png snapshots every snapshot_interval KMC time units and
+    writes unified density/cluster/farfield series covering all three phases.
+
+    params.delta_mu should be 0 (used for equilibration and drive-off).
+    """
+    os.makedirs(run_dir, exist_ok=True)
+
+    snap_root = os.path.join(run_dir, "snapshots")
+    eq_snap_dir = os.path.join(snap_root, "equilibrated")
+    on_snap_dir = os.path.join(snap_root, "drive_on")
+    off_snap_dir = os.path.join(snap_root, "drive_off")
+    for d in (eq_snap_dir, on_snap_dir, off_snap_dir):
+        os.makedirs(d, exist_ok=True)
+
+    # --- phase 1: equilibration (no snapshots mid-eq; just save final state) ---
+    print(f"  Equilibrating for t={eq_time} ...")
+    eq_params = dataclass_replace(params, delta_mu=0.0)
+    eq_state, eq_time_actual = _simulate_phase(initial_state, eq_params, eq_time, params.seed)
+    total_time = eq_time_actual
+
+    save_snapshot(eq_state, eq_snap_dir, total_time)
+    print(f"  Equilibrated state saved (t={total_time:.2f})")
+
+    density_rows: list[DensityRow] = []
+    cluster_rows: list[ClusterRow] = []
+    farfield_rows: list[FarFieldRow] = []
+
+    rb, ri, re = lattice_densities(eq_state)
+    density_rows.append(DensityRow(chunk=0, time=total_time,
+                                   rho_bonding=rb, rho_inert=ri, rho_empty=re))
+    area, perimeter, r_eff = largest_cluster_stats(eq_state)
+    cluster_rows.append(ClusterRow(chunk=0, time=total_time,
+                                   area=area, perimeter=perimeter, r_eff=r_eff))
+    rho_b_far, rho_i_far = far_field_densities(eq_state)
+    farfield_rows.append(FarFieldRow(chunk=0, time=total_time,
+                                     rho_b_far=rho_b_far, rho_i_far=rho_i_far))
+
+    equilibration_end_time = total_time
+    n_on_chunks = round(drive_on_time / snapshot_interval)
+
+    # --- phase 2: drive ON ---
+    on_params = dataclass_replace(params, delta_mu=drive_on_delta_mu)
+    print(f"  Drive ON (delta_mu={drive_on_delta_mu}): {n_on_chunks} chunks × {snapshot_interval} ...")
+    on_state, total_time = _run_phase_chunks(
+        eq_state, on_params, drive_on_time, snapshot_interval,
+        base_seed=params.seed, chunk_offset=0,
+        snap_dir=on_snap_dir,
+        density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
+        total_time=total_time,
+    )
+
+    drive_on_end_time = total_time
+    n_off_chunks = round(drive_off_time / snapshot_interval)
+
+    # --- phase 3: drive OFF ---
+    off_params = dataclass_replace(params, delta_mu=0.0)
+    print(f"  Drive OFF (delta_mu=0): {n_off_chunks} chunks × {snapshot_interval} ...")
+    final_state, total_time = _run_phase_chunks(
+        on_state, off_params, drive_off_time, snapshot_interval,
+        base_seed=params.seed, chunk_offset=n_on_chunks,
+        snap_dir=off_snap_dir,
+        density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
+        total_time=total_time,
+    )
+
+    # --- save series ---
+    density_csv = os.path.join(run_dir, "density_series.csv")
+    density_png = os.path.join(run_dir, "density_series.png")
+    write_density_csv(density_csv, density_rows)
+    plot_density_series(density_csv, density_png)
+
+    cluster_csv = os.path.join(run_dir, "cluster_series.csv")
+    cluster_png = os.path.join(run_dir, "cluster_series.png")
+    write_cluster_csv(cluster_csv, cluster_rows)
+    plot_cluster_series(cluster_csv, cluster_png, final_state.shape[0])
+
+    farfield_csv = os.path.join(run_dir, "farfield_series.csv")
+    farfield_png = os.path.join(run_dir, "farfield_series.png")
+    write_farfield_csv(farfield_csv, farfield_rows)
+    plot_farfield_series(farfield_csv, farfield_png)
+
+    # --- phase log ---
+    phase_log_path = os.path.join(run_dir, "phase_log.json")
+    with open(phase_log_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "equilibration_end_time": equilibration_end_time,
+            "drive_on_end_time": drive_on_end_time,
+            "drive_off_end_time": total_time,
+            "drive_on_delta_mu": drive_on_delta_mu,
+            "snapshot_interval": snapshot_interval,
+            "n_drive_on_snapshots": n_on_chunks,
+            "n_drive_off_snapshots": n_off_chunks,
+        }, f, indent=2)
+
+    # --- params.json ---
+    params_path = os.path.join(run_dir, "params.json")
+    save_params_json(params_path, params, extra={
+        "mode": "poster",
+        "drive_on_delta_mu": drive_on_delta_mu,
+        "eq_time": eq_time,
+        "drive_on_time": drive_on_time,
+        "drive_off_time": drive_off_time,
+        "snapshot_interval": snapshot_interval,
+        "total_kmc_time": total_time,
+    })
+
+    return {
+        "run_dir": run_dir,
+        "params_json": params_path,
+        "phase_log": phase_log_path,
+        "density_csv": density_csv,
+        "cluster_csv": cluster_csv,
+        "farfield_csv": farfield_csv,
+        "final_time": total_time,
+        "equilibration_end_time": equilibration_end_time,
+        "drive_on_end_time": drive_on_end_time,
+    }

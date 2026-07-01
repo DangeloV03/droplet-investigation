@@ -1,0 +1,16 @@
+{
+  "comment": "Poster 3-phase simulation parameters. Run with: python poster_run.py --lattice-size 256 [--slurm]",
+  "lattice_sizes": [256, 128],
+  "delta_mu_drive": 3.0,
+  "bond_energy": -2.95,
+  "delta_f": 1.7337,
+  "scheme": "negative_drive",
+  "concentration": 0.05,
+  "diffusion_lamda": 100.0,
+  "geometry_label": "single_r25",
+  "seed": 42,
+  "eq_time": 1000000,
+  "drive_on_time": 500000,
+  "drive_off_time": 500000,
+  "snapshot_interval": 10000
+}
