@@ -161,6 +161,8 @@ def _build_batch_script(args: argparse.Namespace, cfg: dict) -> str:
     ]
     if cfg.get("account"):
         lines.append(f"#SBATCH --account={cfg['account']}")
+    if cfg.get("qos"):
+        lines.append(f"#SBATCH --qos={cfg['qos']}")
     lines.append("")
 
     for cmd in cfg.get("setup_cmds", []):

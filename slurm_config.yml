@@ -8,11 +8,10 @@
 job_name: droplet_sim
 cpus_per_task: 1
 mem: 8G
-time_minutes: 720
+time_minutes: 4320
 partition: cpu
+qos: medium
 # account: your_account   # uncomment if required (flex runs without it)
-# qos is auto-assigned by Della based on time: short (≤24h), medium (≤72h), vlong (≤144h)
-# Do not set qos manually — the cpu partition enforces its own MaxTime ceiling.
 
 report_dir: /home/vd7294/slurm_reports
 output: "/home/vd7294/slurm_reports/%j.out"
