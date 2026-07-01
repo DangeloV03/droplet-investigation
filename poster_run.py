@@ -81,9 +81,20 @@ def _load_or_build_geometry(
     return state
 
 
+def _find_existing_run(output_dir: str, label: str) -> str | None:
+    """Return the most recent partial run directory for this label, or None."""
+    root = Path(output_dir)
+    if not root.is_dir():
+        return None
+    suffix = f"_{label}"
+    matches = [d for d in root.iterdir() if d.is_dir() and d.name.endswith(suffix)]
+    return str(sorted(matches)[-1]) if matches else None
+
+
 def run_local(args: argparse.Namespace) -> None:
     lattice_size: int = args.lattice_size
     delta_mu_drive: float = args.delta_mu_drive
+    label = _label(lattice_size, delta_mu_drive)
 
     print(f"=== Poster simulation: L={lattice_size}, delta_mu_drive={delta_mu_drive} ===")
 
@@ -116,7 +127,12 @@ def run_local(args: argparse.Namespace) -> None:
         geometry_label=args.geometry_label,
     )
 
-    run_dir = make_timestamped_run_dir(args.output_dir, _label(lattice_size, delta_mu_drive))
+    existing = _find_existing_run(args.output_dir, label)
+    if existing:
+        run_dir = existing
+        print(f"  Found partial run — resuming: {run_dir}")
+    else:
+        run_dir = make_timestamped_run_dir(args.output_dir, label)
 
     result = run_poster_simulation(
         params,
@@ -140,9 +156,12 @@ def run_local(args: argparse.Namespace) -> None:
 
 def _build_batch_script(args: argparse.Namespace, cfg: dict) -> str:
     """Build a Slurm batch script that re-invokes poster_run.py without --slurm."""
-    from slurm_submit import expand_user_vars, project_root
+    from slurm_submit import expand_user_vars
 
-    root = project_root(cfg)
+    # Use slurm_config.yml project_root directly — do NOT fall back to the
+    # PROJECT_ROOT env var, which may point to a different repo on the cluster.
+    cfg_root = str(cfg.get("project_root", "")).strip()
+    root = Path(cfg_root).expanduser().resolve() if cfg_root else Path.cwd().resolve()
     report_dir = expand_user_vars(str(cfg["report_dir"]))
     job_label = _label(args.lattice_size, args.delta_mu_drive)
     job_name = f"{cfg['job_name']}_{job_label}"[:64]

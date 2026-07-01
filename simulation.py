@@ -794,6 +794,58 @@ def _run_phase_chunks(
     return state, total_time
 
 
+# ---------------------------------------------------------------------------
+# Resume helpers
+# ---------------------------------------------------------------------------
+
+def _count_phase_snapshots(snap_dir: str) -> int:
+    if not os.path.isdir(snap_dir):
+        return 0
+    return sum(1 for f in os.listdir(snap_dir)
+               if f.startswith("state_t") and f.endswith(".npy"))
+
+
+def _load_latest_phase_snapshot(snap_dir: str) -> tuple[np.ndarray, float]:
+    """Return (state, kmc_time) of the newest snapshot in snap_dir."""
+    snaps = sorted(f for f in os.listdir(snap_dir)
+                   if f.startswith("state_t") and f.endswith(".npy"))
+    name = snaps[-1]
+    kmc_time = float(name[len("state_t"):-len(".npy")])
+    state = np.load(os.path.join(snap_dir, name)).astype(np.uint32)
+    return state, kmc_time
+
+
+def _load_density_rows(path: str) -> list[DensityRow]:
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [DensityRow(chunk=int(r["chunk"]), time=float(r["time"]),
+                           rho_bonding=float(r["rho_bonding"]),
+                           rho_inert=float(r["rho_inert"]),
+                           rho_empty=float(r["rho_empty"]))
+                for r in csv.DictReader(f)]
+
+
+def _load_cluster_rows(path: str) -> list[ClusterRow]:
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [ClusterRow(chunk=int(r["chunk"]), time=float(r["time"]),
+                           area=int(r["area"]), perimeter=int(r["perimeter"]),
+                           r_eff=float(r["r_eff"]))
+                for r in csv.DictReader(f)]
+
+
+def _load_farfield_rows(path: str) -> list[FarFieldRow]:
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [FarFieldRow(chunk=int(r["chunk"]), time=float(r["time"]),
+                            rho_b_far=float(r["rho_b_far"]),
+                            rho_i_far=float(r["rho_i_far"]))
+                for r in csv.DictReader(f)]
+
+
 def run_poster_simulation(
     params: RunParams,
     drive_on_delta_mu: float,
@@ -811,10 +863,9 @@ def run_poster_simulation(
       2. Drive ON (delta_mu=drive_on_delta_mu) for drive_on_time
       3. Drive OFF (delta_mu=0) for drive_off_time
 
-    Saves .npy + .png snapshots every snapshot_interval KMC time units and
-    writes unified density/cluster/farfield series covering all three phases.
-
-    params.delta_mu should be 0 (used for equilibration and drive-off).
+    Saves .npy + .png snapshots every snapshot_interval KMC time units.
+    Automatically resumes from the last checkpoint if run_dir already
+    contains partial work.
     """
     os.makedirs(run_dir, exist_ok=True)
 
@@ -825,50 +876,101 @@ def run_poster_simulation(
     for d in (eq_snap_dir, on_snap_dir, off_snap_dir):
         os.makedirs(d, exist_ok=True)
 
+    density_csv = os.path.join(run_dir, "density_series.csv")
+    cluster_csv = os.path.join(run_dir, "cluster_series.csv")
+    farfield_csv = os.path.join(run_dir, "farfield_series.csv")
+
     n_eq_chunks = round(eq_time / snapshot_interval)
     n_on_chunks = round(drive_on_time / snapshot_interval)
     n_off_chunks = round(drive_off_time / snapshot_interval)
 
-    density_rows: list[DensityRow] = []
-    cluster_rows: list[ClusterRow] = []
-    farfield_rows: list[FarFieldRow] = []
+    # Detect existing checkpoints
+    n_eq_done = _count_phase_snapshots(eq_snap_dir)
+    n_on_done = _count_phase_snapshots(on_snap_dir)
+    n_off_done = _count_phase_snapshots(off_snap_dir)
 
-    # --- phase 1: equilibration (chunked, snapshot every snapshot_interval) ---
+    if n_eq_done or n_on_done or n_off_done:
+        print(f"  Resuming: eq {n_eq_done}/{n_eq_chunks}, "
+              f"drive_on {n_on_done}/{n_on_chunks}, "
+              f"drive_off {n_off_done}/{n_off_chunks} chunks done")
+
+    # Load existing CSV rows so they are preserved across resumes
+    density_rows = _load_density_rows(density_csv)
+    cluster_rows = _load_cluster_rows(cluster_csv)
+    farfield_rows = _load_farfield_rows(farfield_csv)
+
+    total_time = 0.0
     eq_params = dataclass_replace(params, delta_mu=0.0)
-    print(f"  Equilibrating: {n_eq_chunks} chunks × {snapshot_interval} ...")
-    eq_state, total_time = _run_phase_chunks(
-        initial_state, eq_params, eq_time, snapshot_interval,
-        base_seed=params.seed, chunk_offset=0,
-        snap_dir=eq_snap_dir,
-        density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
-        total_time=0.0,
-    )
+
+    # --- phase 1: equilibration ---
+    if n_eq_done >= n_eq_chunks:
+        eq_state, total_time = _load_latest_phase_snapshot(eq_snap_dir)
+        print(f"  Equilibration already complete (t={total_time:.2f})")
+    else:
+        if n_eq_done > 0:
+            start_eq, total_time = _load_latest_phase_snapshot(eq_snap_dir)
+            print(f"  Resuming equilibration from chunk {n_eq_done}/{n_eq_chunks} "
+                  f"(t={total_time:.2f}) ...")
+        else:
+            start_eq = initial_state
+            print(f"  Equilibrating: {n_eq_chunks} chunks × {snapshot_interval} ...")
+        eq_state, total_time = _run_phase_chunks(
+            start_eq, eq_params, (n_eq_chunks - n_eq_done) * snapshot_interval,
+            snapshot_interval,
+            base_seed=params.seed, chunk_offset=n_eq_done,
+            snap_dir=eq_snap_dir,
+            density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
+            total_time=total_time,
+        )
 
     equilibration_end_time = total_time
+    on_params = dataclass_replace(params, delta_mu=drive_on_delta_mu)
 
     # --- phase 2: drive ON ---
-    on_params = dataclass_replace(params, delta_mu=drive_on_delta_mu)
-    print(f"  Drive ON (delta_mu={drive_on_delta_mu}): {n_on_chunks} chunks × {snapshot_interval} ...")
-    on_state, total_time = _run_phase_chunks(
-        eq_state, on_params, drive_on_time, snapshot_interval,
-        base_seed=params.seed, chunk_offset=n_eq_chunks,
-        snap_dir=on_snap_dir,
-        density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
-        total_time=total_time,
-    )
+    if n_on_done >= n_on_chunks:
+        on_state, total_time = _load_latest_phase_snapshot(on_snap_dir)
+        print(f"  Drive ON already complete (t={total_time:.2f})")
+    else:
+        if n_on_done > 0:
+            start_on, total_time = _load_latest_phase_snapshot(on_snap_dir)
+            print(f"  Resuming drive ON from chunk {n_on_done}/{n_on_chunks} "
+                  f"(t={total_time:.2f}) ...")
+        else:
+            start_on = eq_state
+            print(f"  Drive ON (delta_mu={drive_on_delta_mu}): "
+                  f"{n_on_chunks} chunks × {snapshot_interval} ...")
+        on_state, total_time = _run_phase_chunks(
+            start_on, on_params, (n_on_chunks - n_on_done) * snapshot_interval,
+            snapshot_interval,
+            base_seed=params.seed, chunk_offset=n_eq_chunks + n_on_done,
+            snap_dir=on_snap_dir,
+            density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
+            total_time=total_time,
+        )
 
     drive_on_end_time = total_time
+    off_params = dataclass_replace(params, delta_mu=0.0)
 
     # --- phase 3: drive OFF ---
-    off_params = dataclass_replace(params, delta_mu=0.0)
-    print(f"  Drive OFF (delta_mu=0): {n_off_chunks} chunks × {snapshot_interval} ...")
-    final_state, total_time = _run_phase_chunks(
-        on_state, off_params, drive_off_time, snapshot_interval,
-        base_seed=params.seed, chunk_offset=n_eq_chunks + n_on_chunks,
-        snap_dir=off_snap_dir,
-        density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
-        total_time=total_time,
-    )
+    if n_off_done >= n_off_chunks:
+        final_state, total_time = _load_latest_phase_snapshot(off_snap_dir)
+        print(f"  Drive OFF already complete (t={total_time:.2f})")
+    else:
+        if n_off_done > 0:
+            start_off, total_time = _load_latest_phase_snapshot(off_snap_dir)
+            print(f"  Resuming drive OFF from chunk {n_off_done}/{n_off_chunks} "
+                  f"(t={total_time:.2f}) ...")
+        else:
+            start_off = on_state
+            print(f"  Drive OFF: {n_off_chunks} chunks × {snapshot_interval} ...")
+        final_state, total_time = _run_phase_chunks(
+            start_off, off_params, (n_off_chunks - n_off_done) * snapshot_interval,
+            snapshot_interval,
+            base_seed=params.seed, chunk_offset=n_eq_chunks + n_on_chunks + n_off_done,
+            snap_dir=off_snap_dir,
+            density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
+            total_time=total_time,
+        )
 
     # --- save series ---
     density_csv = os.path.join(run_dir, "density_series.csv")
