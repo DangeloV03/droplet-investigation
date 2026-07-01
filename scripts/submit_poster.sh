@@ -34,7 +34,7 @@ done
 
 cd "${REPO_ROOT}"
 
-for L in 256 128; do
+for L in 128; do
   echo "=== Submitting L=${L} poster job ==="
   python poster_run.py \
     --lattice-size "${L}" \

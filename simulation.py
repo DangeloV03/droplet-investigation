@@ -825,52 +825,46 @@ def run_poster_simulation(
     for d in (eq_snap_dir, on_snap_dir, off_snap_dir):
         os.makedirs(d, exist_ok=True)
 
-    # --- phase 1: equilibration (no snapshots mid-eq; just save final state) ---
-    print(f"  Equilibrating for t={eq_time} ...")
-    eq_params = dataclass_replace(params, delta_mu=0.0)
-    eq_state, eq_time_actual = _simulate_phase(initial_state, eq_params, eq_time, params.seed)
-    total_time = eq_time_actual
-
-    save_snapshot(eq_state, eq_snap_dir, total_time)
-    print(f"  Equilibrated state saved (t={total_time:.2f})")
+    n_eq_chunks = round(eq_time / snapshot_interval)
+    n_on_chunks = round(drive_on_time / snapshot_interval)
+    n_off_chunks = round(drive_off_time / snapshot_interval)
 
     density_rows: list[DensityRow] = []
     cluster_rows: list[ClusterRow] = []
     farfield_rows: list[FarFieldRow] = []
 
-    rb, ri, re = lattice_densities(eq_state)
-    density_rows.append(DensityRow(chunk=0, time=total_time,
-                                   rho_bonding=rb, rho_inert=ri, rho_empty=re))
-    area, perimeter, r_eff = largest_cluster_stats(eq_state)
-    cluster_rows.append(ClusterRow(chunk=0, time=total_time,
-                                   area=area, perimeter=perimeter, r_eff=r_eff))
-    rho_b_far, rho_i_far = far_field_densities(eq_state)
-    farfield_rows.append(FarFieldRow(chunk=0, time=total_time,
-                                     rho_b_far=rho_b_far, rho_i_far=rho_i_far))
+    # --- phase 1: equilibration (chunked, snapshot every snapshot_interval) ---
+    eq_params = dataclass_replace(params, delta_mu=0.0)
+    print(f"  Equilibrating: {n_eq_chunks} chunks × {snapshot_interval} ...")
+    eq_state, total_time = _run_phase_chunks(
+        initial_state, eq_params, eq_time, snapshot_interval,
+        base_seed=params.seed, chunk_offset=0,
+        snap_dir=eq_snap_dir,
+        density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
+        total_time=0.0,
+    )
 
     equilibration_end_time = total_time
-    n_on_chunks = round(drive_on_time / snapshot_interval)
 
     # --- phase 2: drive ON ---
     on_params = dataclass_replace(params, delta_mu=drive_on_delta_mu)
     print(f"  Drive ON (delta_mu={drive_on_delta_mu}): {n_on_chunks} chunks × {snapshot_interval} ...")
     on_state, total_time = _run_phase_chunks(
         eq_state, on_params, drive_on_time, snapshot_interval,
-        base_seed=params.seed, chunk_offset=0,
+        base_seed=params.seed, chunk_offset=n_eq_chunks,
         snap_dir=on_snap_dir,
         density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
         total_time=total_time,
     )
 
     drive_on_end_time = total_time
-    n_off_chunks = round(drive_off_time / snapshot_interval)
 
     # --- phase 3: drive OFF ---
     off_params = dataclass_replace(params, delta_mu=0.0)
     print(f"  Drive OFF (delta_mu=0): {n_off_chunks} chunks × {snapshot_interval} ...")
     final_state, total_time = _run_phase_chunks(
         on_state, off_params, drive_off_time, snapshot_interval,
-        base_seed=params.seed, chunk_offset=n_on_chunks,
+        base_seed=params.seed, chunk_offset=n_eq_chunks + n_on_chunks,
         snap_dir=off_snap_dir,
         density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
         total_time=total_time,
