@@ -168,7 +168,11 @@ def _build_batch_script(args: argparse.Namespace, cfg: dict) -> str:
     stdout = expand_user_vars(str(cfg.get("output", f"{report_dir}/%j.out")))
     stderr = expand_user_vars(str(cfg.get("error", f"{report_dir}/%j.err")))
 
-    lines = ["#!/bin/bash", "set -euo pipefail", ""]
+    # NOTE: #SBATCH directives must appear before the first non-comment,
+    # non-blank line, or Slurm silently ignores them (e.g. --time goes
+    # missing -> "Requested time limit is invalid"). Keep `set -euo pipefail`
+    # AFTER the #SBATCH block.
+    lines = ["#!/bin/bash"]
     lines += [
         f"#SBATCH --job-name={job_name}",
         f"#SBATCH --partition={cfg['partition']}",
@@ -182,6 +186,8 @@ def _build_batch_script(args: argparse.Namespace, cfg: dict) -> str:
         lines.append(f"#SBATCH --account={cfg['account']}")
     if cfg.get("qos"):
         lines.append(f"#SBATCH --qos={cfg['qos']}")
+    lines.append("")
+    lines.append("set -euo pipefail")
     lines.append("")
 
     for cmd in cfg.get("setup_cmds", []):

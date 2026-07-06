@@ -1,14 +1,16 @@
 # Slurm settings for json_runner.py --slurm
 # Aligned with flex-investigation (partition, mem, conda setup, %j logs).
 #
-# WALLTIME: set time_minutes only. Batch scripts emit #SBATCH --time=720
-# (integer minutes). Do NOT use HH:MM:SS in #SBATCH lines — Della accepts
-# --time=12:00:00 on the CLI but rejects it inside script files.
+# WALLTIME: set time_minutes only. Batch scripts emit #SBATCH --time=2880
+# (integer minutes = 2 days). Do NOT use HH:MM:SS in #SBATCH lines — Della
+# accepts --time=12:00:00 on the CLI but rejects it inside script files.
+# #SBATCH directives must precede the first command line in the batch script
+# or Slurm ignores them (see poster_run.py::_build_batch_script).
 
 job_name: droplet_sim
 cpus_per_task: 1
 mem: 8G
-time_minutes: 720
+time_minutes: 2880
 partition: cpu
 qos: medium
 # account: your_account   # uncomment if required
