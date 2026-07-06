@@ -226,6 +226,8 @@ def run_slurm(args: argparse.Namespace) -> None:
     from slurm_submit import load_slurm_config, expand_user_vars
 
     cfg = load_slurm_config(args.slurm_config)
+    if args.time_minutes is not None:
+        cfg["time_minutes"] = args.time_minutes
     script = _build_batch_script(args, cfg)
 
     if args.dry_run:
@@ -297,6 +299,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true",
                         help="With --slurm: print batch script without submitting")
     parser.add_argument("--slurm-config", default="slurm_config.yml")
+    parser.add_argument("--time-minutes", type=int, default=None,
+                        help="Override walltime (integer minutes) from slurm_config.yml")
 
     args = parser.parse_args()
 
