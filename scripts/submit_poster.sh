@@ -5,6 +5,7 @@
 #   ./scripts/submit_poster.sh                         # delta_mu_drive=3.0
 #   ./scripts/submit_poster.sh --delta-mu-drive 5.0
 #   ./scripts/submit_poster.sh --time-minutes 5760    # 4-day walltime
+#   ./scripts/submit_poster.sh --output-dir poster_four_day_run
 #   ./scripts/submit_poster.sh --dry-run               # preview batch scripts
 
 set -euo pipefail
@@ -15,6 +16,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Parse optional flags
 DM_ARGS=()
 TIME_ARGS=()
+OUT_ARGS=()
 DRY_RUN=()
 while [[ $# -gt 0 ]]; do
   case "${1}" in
@@ -26,13 +28,17 @@ while [[ $# -gt 0 ]]; do
       TIME_ARGS=(--time-minutes "${2:?Missing value for --time-minutes}")
       shift 2
       ;;
+    --output-dir)
+      OUT_ARGS=(--output-dir "${2:?Missing value for --output-dir}")
+      shift 2
+      ;;
     --dry-run)
       DRY_RUN=(--dry-run)
       shift
       ;;
     *)
       echo "Unknown argument: ${1}" >&2
-      echo "Usage: $0 [--delta-mu-drive VALUE] [--time-minutes N] [--dry-run]" >&2
+      echo "Usage: $0 [--delta-mu-drive VALUE] [--time-minutes N] [--output-dir DIR] [--dry-run]" >&2
       exit 1
       ;;
   esac
@@ -46,6 +52,7 @@ for L in 128; do
     --lattice-size "${L}" \
     "${DM_ARGS[@]}" \
     "${TIME_ARGS[@]}" \
+    "${OUT_ARGS[@]}" \
     --slurm \
     "${DRY_RUN[@]}"
 done
