@@ -1024,3 +1024,103 @@ def run_poster_simulation(
         "equilibration_end_time": equilibration_end_time,
         "drive_on_end_time": drive_on_end_time,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dissolve simulation: single driven phase from a pre-equilibrated lattice
+# ---------------------------------------------------------------------------
+
+def run_dissolve_simulation(
+    params: RunParams,
+    initial_state: np.ndarray,
+    run_dir: str,
+    *,
+    drive_delta_mu: float,
+    num_chunks: int,
+    snapshot_interval: float,
+) -> dict[str, Any]:
+    """
+    Single-phase driven dissolution starting from a pre-equilibrated lattice.
+
+    Applies delta_mu = drive_delta_mu for `num_chunks` chunks of
+    `snapshot_interval` KMC time each, saving a lattice snapshot (.npy + .png)
+    after every chunk so the slow dissolution can be watched frame by frame.
+    Automatically resumes from the last checkpoint if run_dir already contains
+    partial work.
+    """
+    os.makedirs(run_dir, exist_ok=True)
+
+    snap_dir = os.path.join(run_dir, "snapshots", "dissolve")
+    os.makedirs(snap_dir, exist_ok=True)
+
+    density_csv = os.path.join(run_dir, "density_series.csv")
+    cluster_csv = os.path.join(run_dir, "cluster_series.csv")
+    farfield_csv = os.path.join(run_dir, "farfield_series.csv")
+
+    n_done = _count_phase_snapshots(snap_dir)
+    density_rows = _load_density_rows(density_csv)
+    cluster_rows = _load_cluster_rows(cluster_csv)
+    farfield_rows = _load_farfield_rows(farfield_csv)
+
+    drive_params = dataclass_replace(params, delta_mu=drive_delta_mu)
+
+    if n_done >= num_chunks:
+        final_state, total_time = _load_latest_phase_snapshot(snap_dir)
+        print(f"  Dissolve already complete ({n_done}/{num_chunks}, t={total_time:.2f})")
+    else:
+        if n_done > 0:
+            start_state, total_time = _load_latest_phase_snapshot(snap_dir)
+            print(f"  Resuming dissolve from chunk {n_done}/{num_chunks} "
+                  f"(t={total_time:.2f}) ...")
+        else:
+            start_state = initial_state
+            total_time = 0.0
+            print(f"  Dissolve (delta_mu={drive_delta_mu}): "
+                  f"{num_chunks} chunks × {snapshot_interval} ...")
+        final_state, total_time = _run_phase_chunks(
+            start_state, drive_params, (num_chunks - n_done) * snapshot_interval,
+            snapshot_interval,
+            base_seed=params.seed, chunk_offset=n_done,
+            snap_dir=snap_dir,
+            density_rows=density_rows, cluster_rows=cluster_rows, farfield_rows=farfield_rows,
+            total_time=total_time,
+        )
+
+    # --- save series ---
+    density_png = os.path.join(run_dir, "density_series.png")
+    write_density_csv(density_csv, density_rows)
+    plot_density_series(density_csv, density_png)
+
+    cluster_png = os.path.join(run_dir, "cluster_series.png")
+    write_cluster_csv(cluster_csv, cluster_rows)
+    plot_cluster_series(cluster_csv, cluster_png, final_state.shape[0])
+
+    farfield_png = os.path.join(run_dir, "farfield_series.png")
+    write_farfield_csv(farfield_csv, farfield_rows)
+    plot_farfield_series(farfield_csv, farfield_png)
+
+    # --- initial + final state at run root ---
+    np.save(os.path.join(run_dir, "initial_state.npy"), initial_state)
+    save_lattice_png(initial_state, os.path.join(run_dir, "initial_state.png"))
+    np.save(os.path.join(run_dir, "final_state.npy"), final_state)
+    save_lattice_png(final_state, os.path.join(run_dir, "final_state.png"))
+
+    # --- params.json ---
+    params_path = os.path.join(run_dir, "params.json")
+    save_params_json(params_path, params, extra={
+        "mode": "dissolve",
+        "drive_delta_mu": drive_delta_mu,
+        "num_chunks": num_chunks,
+        "snapshot_interval": snapshot_interval,
+        "total_kmc_time": total_time,
+    })
+
+    return {
+        "run_dir": run_dir,
+        "params_json": params_path,
+        "density_csv": density_csv,
+        "cluster_csv": cluster_csv,
+        "farfield_csv": farfield_csv,
+        "final_time": total_time,
+        "num_chunks": num_chunks,
+    }
